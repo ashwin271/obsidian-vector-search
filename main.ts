@@ -28,18 +28,11 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
     modelName: 'nomic-embed-text'
 }
 
-const MINIMUM_OBSIDIAN_VERSION = '0.15.0';
-
 export default class VectorSearchPlugin extends Plugin {
     settings: MyPluginSettings;
     vectorStore: Map<string, number[]> = new Map();
 
     async onload() {
-        // Version check
-        if (this.compareVersions(this.app.version, MINIMUM_OBSIDIAN_VERSION) < 0) {
-            new Notice(`Vector Search requires Obsidian ${MINIMUM_OBSIDIAN_VERSION} or higher`);
-            return;
-        }
 
         await this.loadSettings();
         
