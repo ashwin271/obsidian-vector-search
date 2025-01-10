@@ -1,11 +1,12 @@
 {
     "id": "obsidian-vector-search",
     "name": "Vector Search",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "minAppVersion": "0.15.0",
-    "description": "Semantic search for your notes using Ollama and nomic-embed-text embeddings",
-    "author": "Your Name",
-    "authorUrl": "https://github.com/yourusername",
+    "description": "Semantic search for your notes using Ollama and nomic-embed-text embeddings. Requires Ollama installation.",
+    "author": "Ashwin A Murali",
+    "authorUrl": "https://github.com/ashwin271",
+    "fundingUrl": "",
     "isDesktopOnly": true,
     "dependencies": {}
 }

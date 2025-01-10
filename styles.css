@@ -1,8 +1,96 @@
-/*
+/* Settings Styles */
+.vector-search-settings h2 {
+    margin-bottom: 1.5em;
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 0.5em;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.vector-search-settings h3 {
+    margin-top: 1.5em;
+    margin-bottom: 1em;
+    color: var(--text-muted);
+}
 
-If your plugin does not need CSS, delete this file.
+/* Search Modal Styles */
+.search-container {
+    margin-bottom: 1em;
+    padding: 1em;
+    background-color: var(--background-primary);
+    border-bottom: 1px solid var(--background-modifier-border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
 
-*/
+.search-container input {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+    border: 2px solid var(--interactive-accent);
+    border-radius: 6px;
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    transition: all 0.3s ease;
+}
+
+.search-container input:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+.search-results {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 0.5em;
+}
+
+.search-results ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.search-results li {
+    padding: 12px;
+    margin: 8px 0;
+    border-radius: 6px;
+    background-color: var(--background-secondary);
+    transition: all 0.2s ease;
+}
+
+.search-results li:hover {
+    background-color: var(--background-modifier-hover);
+    transform: translateX(4px);
+}
+
+.search-results a {
+    text-decoration: none;
+    color: var(--text-normal);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.search-results .similarity-score {
+    color: var(--text-muted);
+    font-size: 0.9em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: var(--background-modifier-border);
+}
+
+/* Progress Bar Styles */
+.vector-search-progress {
+    width: 100%;
+    height: 4px;
+    background-color: var(--background-modifier-border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+.vector-search-progress-bar {
+    height: 100%;
+    background-color: var(--interactive-accent);
+    transition: width 0.3s ease;
+}

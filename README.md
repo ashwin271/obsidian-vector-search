@@ -11,8 +11,57 @@ This plugin adds semantic search capabilities to Obsidian using Ollama's embeddi
 
 ## Prerequisites
 
--   [Ollama](https://ollama.ai/) installed and running locally
--   The `nomic-embed-text` model pulled in Ollama
+### 1. Ollama Setup
+
+-   Install [Ollama](https://ollama.ai/) for your platform:
+    -   **macOS**: Download from [ollama.ai](https://ollama.ai)
+    -   **Linux**: Run `curl -fsSL https://ollama.ai/install.sh | sh`
+    -   **Windows**: Currently in beta, follow instructions on [ollama.ai](https://ollama.ai)
+-   Verify installation by running `ollama --version` in terminal
+-   Start Ollama service:
+    -   It should run automatically on macOS
+    -   On Linux: `systemctl start ollama` or run `ollama serve`
+    -   On Windows: Run Ollama from Start Menu
+
+### 2. Model Installation
+
+-   Pull the required embedding model:
+
+```bash
+ollama pull nomic-embed-text
+```
+
+-   Verify model installation:
+
+```bash
+ollama list
+```
+
+-   Expected size: ~500MB
+-   First-time embedding generation might be slower
+
+### 3. System Requirements
+
+-   Minimum 1GB RAM for Ollama service
+-   ~500MB disk space for the model
+-   Stable internet connection for initial model download
+-   Port 11434 must be available (default Ollama port)
+
+### 4. Troubleshooting
+
+1. If Ollama service isn't responding:
+
+    ```bash
+    curl http://localhost:11434/api/embeddings
+    ```
+
+    Should return a response (even if error)
+
+2. Common issues:
+    - Port 11434 in use: Change port in Ollama config
+    - Permission denied: Run with sudo on Linux
+    - Model download fails: Check internet connection
+    - High CPU usage: Normal during first few runs
 
 ## Installation
 
