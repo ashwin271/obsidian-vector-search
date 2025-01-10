@@ -6,7 +6,7 @@
     "description": "Semantic search for your notes using Ollama and nomic-embed-text embeddings. Requires Ollama installation.",
     "author": "Ashwin A Murali",
     "authorUrl": "https://github.com/ashwin271",
-    "fundingUrl": "",
+    "fundingUrl": "https://buymeacoffee.com/ashwin271",
     "isDesktopOnly": true,
     "dependencies": {}
 }
