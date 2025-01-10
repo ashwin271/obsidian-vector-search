@@ -35,13 +35,19 @@ export default class VectorSearchPlugin extends Plugin {
     vectorStore: Map<string, number[]> = new Map();
 
     async onload() {
+        // Version check
         if (this.compareVersions(this.app.version, MINIMUM_OBSIDIAN_VERSION) < 0) {
             new Notice(`Vector Search requires Obsidian ${MINIMUM_OBSIDIAN_VERSION} or higher`);
             return;
         }
 
         await this.loadSettings();
-        await this.checkOllamaConnection();
+        
+        // Check Ollama and model availability before enabling plugin features
+        const isReady = await this.checkRequirements();
+        if (!isReady) {
+            return; // Don't load plugin features if requirements aren't met
+        }
 
         // Add a ribbon icon for rebuilding the vector index
         this.addRibbonIcon('refresh-cw', 'Rebuild Vector Index', async () => {
@@ -86,6 +92,54 @@ export default class VectorSearchPlugin extends Plugin {
             if (isNaN(na) && !isNaN(nb)) return -1;
         }
         return 0;
+    }
+
+    private async checkRequirements(): Promise<boolean> {
+        try {
+            // Check if Ollama is running
+            const ollamaResponse = await fetch(`${this.settings.ollamaURL}/api/version`, {
+                method: 'GET'
+            });
+
+            if (!ollamaResponse.ok) {
+                new Notice('Could not connect to Ollama server. Please ensure Ollama is installed and running.');
+                console.error('[Vector Search] Ollama connection failed');
+                return false;
+            }
+
+            // Check if the model is available
+            const modelResponse = await fetch(`${this.settings.ollamaURL}/api/tags`, {
+                method: 'GET'
+            });
+
+            if (!modelResponse.ok) {
+                new Notice('Could not check available models. Please verify Ollama installation.');
+                return false;
+            }
+
+            const models = await modelResponse.json();
+            const hasModel = models.models?.some((model: any) => 
+                model.name === this.settings.modelName
+            );
+
+            if (!hasModel) {
+                new Notice(`Required model '${this.settings.modelName}' not found. Please run: ollama pull ${this.settings.modelName}`);
+                console.error('[Vector Search] Required model not installed');
+                return false;
+            }
+
+            return true;
+
+        } catch (error) {
+            new Notice(`
+                Vector Search Plugin Requirements Not Met:
+                1. Install Ollama from ollama.ai
+                2. Start Ollama service
+                3. Run: ollama pull ${this.settings.modelName}
+            `);
+            console.error('[Vector Search] Requirements check failed:', error);
+            return false;
+        }
     }
 
     private async checkOllamaConnection(): Promise<boolean> {
