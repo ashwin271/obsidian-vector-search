@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
     maxResults: 10,
     chunkSize: 500,
     debounceTime: 300,
-    modelName: 'nomic-embed-text'
+    modelName: 'nomic-embed-text:latest'
 }
 
 export default class VectorSearchPlugin extends Plugin {
@@ -341,7 +341,7 @@ class VectorSearchSettingTab extends PluginSettingTab {
             .setName('Model Name')
             .setDesc('Name of the embedding model to use')
             .addText(text => text
-                .setPlaceholder('nomic-embed-text')
+                .setPlaceholder('nomic-embed-text:latest')
                 .setValue(this.plugin.settings.modelName)
                 .onChange(async (value) => {
                     this.plugin.settings.modelName = value;
