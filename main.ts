@@ -1,16 +1,15 @@
 import { 
     App, 
-    Editor, 
-    MarkdownView, 
     Modal, 
     Notice, 
     Plugin, 
     PluginSettingTab, 
     Setting,
-    TFile
+    TFile,
+    normalizePath
 } from 'obsidian';
 
-interface MyPluginSettings {
+interface VectorSearchPluginSettings {
     ollamaURL: string;
     searchThreshold: number;
     maxResults: number;
@@ -19,7 +18,7 @@ interface MyPluginSettings {
     modelName: string;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
+const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
     ollamaURL: 'http://localhost:11434',
     searchThreshold: 0.8,
     maxResults: 10,
@@ -29,7 +28,7 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 }
 
 export default class VectorSearchPlugin extends Plugin {
-    settings: MyPluginSettings;
+    settings: VectorSearchPluginSettings;
     vectorStore: Map<string, number[]> = new Map();
 
     async onload() {
@@ -195,7 +194,9 @@ export default class VectorSearchPlugin extends Plugin {
         for (const file of files) {
             const content = await this.app.vault.read(file);
             const embedding = await this.getEmbedding(content);
-            this.vectorStore.set(file.path, embedding);
+            // Add normalization here:
+            const normalizedPath = normalizePath(file.path);
+            this.vectorStore.set(normalizedPath, embedding);
             
             processed++;
             // Update progress notice
@@ -286,7 +287,8 @@ class SearchModal extends Modal {
             });
             link.addEventListener('click', async (e) => {
                 e.preventDefault();
-                const file = this.app.vault.getAbstractFileByPath(result.path);
+                const normalizedPath = normalizePath(result.path);
+                const file = this.app.vault.getAbstractFileByPath(normalizedPath);
                 if (file instanceof TFile) {
                     await this.app.workspace.getLeaf().openFile(file);
                     this.close();
@@ -296,7 +298,7 @@ class SearchModal extends Modal {
     }
 
     debounce(func: Function, wait: number) {
-        let timeout: NodeJS.Timeout;
+        let timeout: ReturnType<typeof setTimeout>;
         return (...args: any[]) => {
             clearTimeout(timeout);
             timeout = setTimeout(() => func.apply(this, args), wait);
@@ -320,10 +322,9 @@ class VectorSearchSettingTab extends PluginSettingTab {
     display(): void {
         const {containerEl} = this;
         containerEl.empty();
-        containerEl.createEl('h2', {text: 'Vector Search Settings'});
-
-        // Server Settings Section
-        containerEl.createEl('h3', {text: 'Server Settings'});
+        new Setting(containerEl).setName('Vector Search Settings').setHeading();
+        
+        new Setting(containerEl).setName('Server Settings').setHeading();
         
         new Setting(containerEl)
             .setName('Ollama URL')
