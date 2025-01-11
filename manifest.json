@@ -1,5 +1,5 @@
 {
-    "id": "obsidian-vector-search",
+    "id": "vector-search",
     "name": "Vector Search",
     "version": "0.1.0",
     "minAppVersion": "1.7.7",
@@ -7,6 +7,5 @@
     "author": "Ashwin A Murali",
     "authorUrl": "https://github.com/ashwin271",
     "fundingUrl": "https://buymeacoffee.com/ashwin271",
-    "isDesktopOnly": true,
-    "dependencies": {}
+    "isDesktopOnly": true
 }

@@ -1,7 +1,7 @@
 {
-    "name": "obsidian-vector-search",
+    "name": "vector-search",
     "version": "0.1.0",
-    "description": "Semantic search for Obsidian notes using Ollama embeddings",
+    "description": "Semantic search for your notes using Ollama and nomic-embed-text embeddings. Requires Ollama installation.",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs",
