@@ -6,7 +6,8 @@ import {
     PluginSettingTab, 
     Setting,
     TFile,
-    normalizePath
+    normalizePath,
+    debounce
 } from 'obsidian';
 
 interface VectorSearchPluginSettings {
@@ -42,7 +43,7 @@ export default class VectorSearchPlugin extends Plugin {
         }
 
         // Add a ribbon icon for rebuilding the vector index
-        this.addRibbonIcon('refresh-cw', 'Rebuild Vector Index', async () => {
+        this.addRibbonIcon('refresh-cw', 'Rebuild vector index', async () => {
             await this.buildVectorIndex();
             new Notice('Vector index rebuilt!');
         });
@@ -50,7 +51,7 @@ export default class VectorSearchPlugin extends Plugin {
         // Add a command to open search modal
         this.addCommand({
             id: 'search-similar-notes',
-            name: 'Search Similar Notes',
+            name: 'Search similar notes',
             callback: () => {
                 new SearchModal(this.app, this).open();
             }
@@ -237,14 +238,17 @@ class SearchModal extends Modal {
         this.resultsDiv = contentEl.createDiv('search-results');
         
         // Handle search input
-        this.searchInput.addEventListener('input', this.debounce(async () => {
+        const debouncedSearch = debounce(async () => {
             const query = this.searchInput.value;
             if (query.length < 3) {
                 this.resultsDiv.empty();
                 return;
             }
             await this.performSearch(query);
-        }, this.plugin.settings.debounceTime));
+        }, this.plugin.settings.debounceTime, true);
+
+        this.searchInput.addEventListener('input', debouncedSearch);
+
 
         // Focus input
         this.searchInput.focus();
@@ -297,14 +301,6 @@ class SearchModal extends Modal {
         }
     }
 
-    debounce(func: Function, wait: number) {
-        let timeout: ReturnType<typeof setTimeout>;
-        return (...args: any[]) => {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
-        };
-    }
-
     onClose() {
         const {contentEl} = this;
         contentEl.empty();
@@ -322,9 +318,8 @@ class VectorSearchSettingTab extends PluginSettingTab {
     display(): void {
         const {containerEl} = this;
         containerEl.empty();
-        new Setting(containerEl).setName('Vector Search Settings').setHeading();
-        
-        new Setting(containerEl).setName('Server Settings').setHeading();
+
+        new Setting(containerEl).setName('Server configuration').setHeading();
         
         new Setting(containerEl)
             .setName('Ollama URL')
@@ -338,7 +333,7 @@ class VectorSearchSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('Model Name')
+            .setName('Model name')
             .setDesc('Name of the embedding model to use')
             .addText(text => text
                 .setPlaceholder('nomic-embed-text:latest')
@@ -348,11 +343,10 @@ class VectorSearchSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
-        // Search Settings Section
-        containerEl.createEl('h3', {text: 'Search Settings'});
+        new Setting(containerEl).setName('Search options').setHeading();
 
         new Setting(containerEl)
-            .setName('Search Threshold')
+            .setName('Search threshold')
             .setDesc('Minimum similarity score (0-1) for showing results')
             .addSlider(slider => slider
                 .setLimits(0, 1, 0.05)
@@ -364,7 +358,7 @@ class VectorSearchSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('Maximum Results')
+            .setName('Maximum results')
             .setDesc('Maximum number of search results to display')
             .addSlider(slider => slider
                 .setLimits(1, 50, 1)
@@ -375,11 +369,10 @@ class VectorSearchSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
-        // Advanced Settings Section
-        containerEl.createEl('h3', {text: 'Advanced Settings'});
+        new Setting(containerEl).setName('Advanced options').setHeading();
 
         new Setting(containerEl)
-            .setName('Chunk Size')
+            .setName('Chunk size')
             .setDesc('Number of characters per text chunk (0 for no chunking)')
             .addSlider(slider => slider
                 .setLimits(0, 2000, 100)
@@ -391,7 +384,7 @@ class VectorSearchSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('Debounce Time')
+            .setName('Debounce time')
             .setDesc('Delay in milliseconds before searching after typing')
             .addSlider(slider => slider
                 .setLimits(100, 1000, 50)
