@@ -1,53 +1,61 @@
 ## Version Roadmap
 
-### v0.1.0 - Initial Release (Current)
+### v0.1.0 - Foundation ✓
+- [x] Basic semantic search with Ollama integration
+- [x] Vector index building and storage
+- [x] Basic settings and configuration
+- [x] Simple search modal
+- [x] JSON-based persistence
 
--   Basic semantic search functionality
--   Ollama integration
--   Simple settings configuration
--   Basic search modal
--   Vector index building
+### v0.2.0 - Core Stability
+- [ ] Efficient vector storage and retrieval
+  - [ ] Optimize JSON structure for large datasets
+  - [ ] Implement proper chunking strategy
+  - [ ] Add compression for vector storage
+- [ ] Robust index management
+  - [ ] File change detection system
+  - [ ] Incremental updates
+  - [ ] Background indexing with cancelation
+- [ ] Error handling and recovery
+  - [ ] Connection error recovery
+  - [ ] Corrupted index recovery
+  - [ ] Proper error messaging
 
-### v0.2.0 - Core Search Experience
+### v0.3.0 - Search Engine Improvements
+- [ ] Advanced vector operations
+  - [ ] Batch vector processing
+  - [ ] Caching mechanism for frequent searches
+  - [ ] Optimized similarity calculations
+- [ ] Search quality
+  - [ ] Improved relevance scoring
+  - [ ] Context-aware searching
+  - [ ] Basic filtering (paths, folders)
+- [ ] Resource management
+  - [ ] Memory usage optimization
+  - [ ] Index size management
+  - [ ] Performance monitoring
 
--   Preview of note content in search results (most requested feature)
--   Keyboard navigation (↑↓ to navigate, Enter to open)
--   Basic search filters (by folder/path)
--   Better error messages and loading states
--   Save index to disk to prevent rebuilding on restart
+### v0.4.0 - User Experience
+- [ ] Enhanced search interface
+  - [ ] Keyboard navigation
+  - [ ] Result previews
+  - [ ] Loading states
+- [ ] Search customization
+  - [ ] Configurable result templates
+  - [ ] Search filters UI
+  - [ ] User preferences
+- [ ] Mobile optimization
 
-### v0.3.0 - Search Quality & Performance
-
--   Incremental updates (only process modified files)
--   Batch processing for large vaults
--   Configurable chunk size for long documents
--   Option to exclude folders/files from indexing
--   Better progress indicators during indexing
--   Basic search analytics (most searched terms, successful matches)
-
-### v0.4.0 - Enhanced UI & Features
-
--   Dedicated search view panel (like core search)
--   Search history
--   Quick preview on hover
--   Result grouping by folders
--   Customizable result templates
--   Mobile-friendly interface
-
-### v0.5.0 - Smart Features
-
--   Context-aware search (consider note links and backlinks)
--   Smart suggestions as you type
--   Integration with core Obsidian search
--   Export search results
--   Search within time periods
--   Tag-based filtering
-
-### v1.0.0 - Production Ready
-
--   Comprehensive documentation
--   Performance optimizations
--   Migration tools
--   Full test coverage
--   Community templates
--   Plugin API for other developers
+### v1.0.0 - Production Release
+- [ ] Performance optimization
+  - [ ] Search response time
+  - [ ] Index update speed
+  - [ ] Memory footprint
+- [ ] Quality assurance
+  - [ ] Comprehensive testing
+  - [ ] Error tracking
+  - [ ] Performance metrics
+- [ ] Documentation
+  - [ ] API documentation
+  - [ ] User guides
+  - [ ] Performance guidelines
