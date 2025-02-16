@@ -10,6 +10,16 @@ import {
     debounce
 } from 'obsidian';
 
+interface VectorData {
+    path: string;
+    embedding: number[];
+    lastUpdated: number;
+    checksum: string;
+    title: string;
+    startLine: number;
+    endLine: number;
+}
+
 interface VectorSearchPluginSettings {
     ollamaURL: string;
     searchThreshold: number;
@@ -17,6 +27,7 @@ interface VectorSearchPluginSettings {
     chunkSize: number;
     debounceTime: number;
     modelName: string;
+    vectors: VectorData[];
 }
 
 const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
@@ -25,12 +36,13 @@ const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
     maxResults: 10,
     chunkSize: 500,
     debounceTime: 300,
-    modelName: 'nomic-embed-text:latest'
+    modelName: 'nomic-embed-text:latest',
+    vectors: [] 
 }
 
 export default class VectorSearchPlugin extends Plugin {
     settings: VectorSearchPluginSettings;
-    vectorStore: Map<string, number[]> = new Map();
+    vectorStore: Map<string, VectorData> = new Map();
 
     async onload() {
 
@@ -67,6 +79,19 @@ export default class VectorSearchPlugin extends Plugin {
 
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        // Populate vectorStore from settings
+        this.vectorStore = new Map(
+            this.settings.vectors.map(v => [v.path, v])
+        );
+    }
+
+    // Helper function to calculate checksum
+    private calculateChecksum(content: string): string {
+        // Simple implementation - you might want to use a proper hashing library
+        return content.split('').reduce((a, b) => {
+            a = ((a << 5) - a) + b.charCodeAt(0);
+            return a & a;
+        }, 0).toString();
     }
 
     async saveSettings() {
@@ -195,19 +220,30 @@ export default class VectorSearchPlugin extends Plugin {
         for (const file of files) {
             const content = await this.app.vault.read(file);
             const embedding = await this.getEmbedding(content);
-            // Add normalization here:
-            const normalizedPath = normalizePath(file.path);
-            this.vectorStore.set(normalizedPath, embedding);
+            
+            // Create VectorData object
+            const vectorData: VectorData = {
+                path: normalizePath(file.path),
+                embedding: embedding,
+                lastUpdated: Date.now(),
+                checksum: this.calculateChecksum(content),
+                title: file.basename,
+                startLine: 0,
+                endLine: content.split('\n').length
+            };
+            
+            this.vectorStore.set(vectorData.path, vectorData);
             
             processed++;
-            // Update progress notice
-            const percentage = Math.round((processed / total) * 100);
             progressNotice.setMessage(
-                `Indexing files: ${processed}/${total} (${percentage}%)`
+                `Indexing files: ${processed}/${total} (${Math.round((processed / total) * 100)}%)`
             );
         }
         
-        // Close progress notice and show completion notice
+        // Save to settings
+        this.settings.vectors = Array.from(this.vectorStore.values());
+        await this.saveSettings();
+        
         progressNotice.hide();
         new Notice('Vector index rebuilt successfully!');
     }
@@ -261,12 +297,12 @@ class SearchModal extends Modal {
         }
 
         const queryEmbedding = await this.plugin.getEmbedding(query);
-        const results: Array<{path: string, similarity: number}> = [];
+        const results: Array<{vectorData: VectorData, similarity: number}> = [];
 
-        for (const [path, embedding] of this.plugin.vectorStore.entries()) {
-            const similarity = this.plugin.cosineSimilarity(queryEmbedding, embedding);
+        for (const vectorData of this.plugin.vectorStore.values()) {
+            const similarity = this.plugin.cosineSimilarity(queryEmbedding, vectorData.embedding);
             if (similarity >= this.plugin.settings.searchThreshold) {
-                results.push({ path, similarity });
+                results.push({ vectorData, similarity });
             }
         }
 
@@ -274,7 +310,7 @@ class SearchModal extends Modal {
         this.displayResults(results.slice(0, this.plugin.settings.maxResults));
     }
 
-    displayResults(results: Array<{path: string, similarity: number}>) {
+    displayResults(results: Array<{vectorData: VectorData, similarity: number}>) {
         this.resultsDiv.empty();
         
         if (results.length === 0) {
@@ -286,15 +322,22 @@ class SearchModal extends Modal {
         for (const result of results) {
             const item = list.createEl('li');
             const link = item.createEl('a', {
-                text: `${result.path} (${(result.similarity * 100).toFixed(2)}%)`,
+                text: `${result.vectorData.title} (${(result.similarity * 100).toFixed(2)}%)`,
                 href: '#'
             });
+            
+            // Add line numbers info
+            item.createEl('div', {
+                text: `Lines ${result.vectorData.startLine}-${result.vectorData.endLine}`,
+                cls: 'search-result-lines'
+            });
+
             link.addEventListener('click', async (e) => {
                 e.preventDefault();
-                const normalizedPath = normalizePath(result.path);
-                const file = this.app.vault.getAbstractFileByPath(normalizedPath);
+                const file = this.app.vault.getAbstractFileByPath(result.vectorData.path);
                 if (file instanceof TFile) {
                     await this.app.workspace.getLeaf().openFile(file);
+                    // TODO: Scroll to specific line if needed
                     this.close();
                 }
             });
