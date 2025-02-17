@@ -13,8 +13,6 @@ import {
 interface VectorData {
     path: string;
     embedding: number[];
-    lastUpdated: number;
-    checksum: string;
     title: string;
     startLine: number;
     endLine: number;
@@ -87,15 +85,6 @@ export default class VectorSearchPlugin extends Plugin {
         this.vectorStore = new Map(
             this.settings.vectors.map(v => [v.path, v])
         );
-    }
-
-    // Helper function to calculate checksum
-    private calculateChecksum(content: string): string {
-        // Simple implementation - you might want to use a proper hashing library
-        return content.split('').reduce((a, b) => {
-            a = ((a << 5) - a) + b.charCodeAt(0);
-            return a & a;
-        }, 0).toString();
     }
 
     async saveSettings() {
@@ -272,8 +261,6 @@ export default class VectorSearchPlugin extends Plugin {
                 const vectorData: VectorData = {
                     path: normalizePath(file.path),
                     embedding: embedding,
-                    lastUpdated: Date.now(),
-                    checksum: this.calculateChecksum(chunk),
                     title: `${file.basename} (chunk ${i + 1}/${chunks.length})`,
                     startLine,
                     endLine
@@ -288,7 +275,7 @@ export default class VectorSearchPlugin extends Plugin {
                 `Indexing files: ${processed}/${total} (${Math.round((processed / total) * 100)}%)`
             );
         }
-        
+
         this.settings.vectors = Array.from(this.vectorStore.values());
         await this.saveSettings();
         
