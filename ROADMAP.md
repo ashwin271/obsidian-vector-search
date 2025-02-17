@@ -8,9 +8,9 @@
 - [x] JSON-based persistence
 
 ### v0.2.0 - Core Stability
-- [ ] Efficient vector storage and retrieval
-  - [ ] Optimize JSON structure for large datasets
-  - [ ] Implement proper chunking strategy
+- [x] Efficient vector storage and retrieval
+  - [x] Optimize JSON structure for large datasets
+  - [x] Implement proper chunking strategy
   - [ ] Add compression for vector storage
 - [ ] Robust index management
   - [ ] File change detection system

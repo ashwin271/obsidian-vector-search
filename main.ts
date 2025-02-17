@@ -25,6 +25,8 @@ interface VectorSearchPluginSettings {
     searchThreshold: number;
     maxResults: number;
     chunkSize: number;
+    chunkOverlap: number;
+    chunkingStrategy: 'character' | 'paragraph';
     debounceTime: number;
     modelName: string;
     vectors: VectorData[];
@@ -35,6 +37,8 @@ const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
     searchThreshold: 0.8,
     maxResults: 10,
     chunkSize: 500,
+    chunkOverlap: 100,
+    chunkingStrategy: 'paragraph',
     debounceTime: 300,
     modelName: 'nomic-embed-text:latest',
     vectors: [] 
@@ -173,6 +177,43 @@ export default class VectorSearchPlugin extends Plugin {
         }
     }
 
+    private splitIntoChunks(content: string): string[] {
+        if (this.settings.chunkSize === 0) {
+            return [content];
+        }
+
+        if (this.settings.chunkingStrategy === 'paragraph') {
+            const paragraphs = content.split(/\n\s*\n/);
+            const chunks: string[] = [];
+            let currentChunk = '';
+
+            for (const paragraph of paragraphs) {
+                if ((currentChunk + paragraph).length > this.settings.chunkSize) {
+                    if (currentChunk) {
+                        chunks.push(currentChunk.trim());
+                    }
+                    currentChunk = paragraph;
+                } else {
+                    currentChunk = currentChunk ? `${currentChunk}\n\n${paragraph}` : paragraph;
+                }
+            }
+            if (currentChunk) {
+                chunks.push(currentChunk.trim());
+            }
+            return chunks;
+        }
+
+        // Character-based chunking
+        const chunks: string[] = [];
+        let i = 0;
+        while (i < content.length) {
+            const chunk = content.slice(i, i + this.settings.chunkSize);
+            chunks.push(chunk);
+            i += this.settings.chunkSize - this.settings.chunkOverlap;
+        }
+        return chunks;
+    }
+
     // Function to get embeddings from Ollama
     async getEmbedding(text: string): Promise<number[]> {
         try {
@@ -211,28 +252,36 @@ export default class VectorSearchPlugin extends Plugin {
         let processed = 0;
         const total = files.length;
         
-        // Show initial progress
         const progressNotice = new Notice(
             `Indexing files: 0/${total} (0%)`,
-            0 // Set duration to 0 to keep it persistent
+            0
         );
         
         for (const file of files) {
             const content = await this.app.vault.read(file);
-            const embedding = await this.getEmbedding(content);
+            const chunks = this.splitIntoChunks(content);
+            const lines = content.split('\n');
             
-            // Create VectorData object
-            const vectorData: VectorData = {
-                path: normalizePath(file.path),
-                embedding: embedding,
-                lastUpdated: Date.now(),
-                checksum: this.calculateChecksum(content),
-                title: file.basename,
-                startLine: 0,
-                endLine: content.split('\n').length
-            };
-            
-            this.vectorStore.set(vectorData.path, vectorData);
+            for (let i = 0; i < chunks.length; i++) {
+                const chunk = chunks[i];
+                const startLine = content.slice(0, content.indexOf(chunk)).split('\n').length - 1;
+                const endLine = startLine + chunk.split('\n').length;
+                
+                const embedding = await this.getEmbedding(chunk);
+                
+                const vectorData: VectorData = {
+                    path: normalizePath(file.path),
+                    embedding: embedding,
+                    lastUpdated: Date.now(),
+                    checksum: this.calculateChecksum(chunk),
+                    title: `${file.basename} (chunk ${i + 1}/${chunks.length})`,
+                    startLine,
+                    endLine
+                };
+                
+                const key = `${vectorData.path}#${i}`;
+                this.vectorStore.set(key, vectorData);
+            }
             
             processed++;
             progressNotice.setMessage(
@@ -240,7 +289,6 @@ export default class VectorSearchPlugin extends Plugin {
             );
         }
         
-        // Save to settings
         this.settings.vectors = Array.from(this.vectorStore.values());
         await this.saveSettings();
         
@@ -412,7 +460,20 @@ class VectorSearchSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
-        new Setting(containerEl).setName('Advanced options').setHeading();
+        new Setting(containerEl)
+            .setName('Debounce time')
+            .setDesc('Delay in milliseconds before searching after typing')
+            .addSlider(slider => slider
+                .setLimits(100, 1000, 50)
+                .setValue(this.plugin.settings.debounceTime)
+                .setDynamicTooltip()
+                .onChange(async (value) => {
+                    this.plugin.settings.debounceTime = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl).setName('Chunking options').setHeading();
+
 
         new Setting(containerEl)
             .setName('Chunk size')
@@ -427,14 +488,26 @@ class VectorSearchSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('Debounce time')
-            .setDesc('Delay in milliseconds before searching after typing')
+            .setName('Chunking strategy')
+            .setDesc('How to split documents into chunks')
+            .addDropdown(dropdown => dropdown
+                .addOption('character', 'Character-based')
+                .addOption('paragraph', 'Paragraph-based')
+                .setValue(this.plugin.settings.chunkingStrategy)
+                .onChange(async (value: 'character' | 'paragraph') => {
+                    this.plugin.settings.chunkingStrategy = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Chunk overlap')
+            .setDesc('Number of characters to overlap between chunks')
             .addSlider(slider => slider
-                .setLimits(100, 1000, 50)
-                .setValue(this.plugin.settings.debounceTime)
+                .setLimits(0, 200, 10)
+                .setValue(this.plugin.settings.chunkOverlap)
                 .setDynamicTooltip()
                 .onChange(async (value) => {
-                    this.plugin.settings.debounceTime = value;
+                    this.plugin.settings.chunkOverlap = value;
                     await this.plugin.saveSettings();
                 }));
     }
