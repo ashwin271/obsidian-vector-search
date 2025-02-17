@@ -7,7 +7,8 @@ import {
     Setting,
     TFile,
     normalizePath,
-    debounce
+    debounce,
+    Debouncer
 } from 'obsidian';
 
 interface VectorData {
@@ -26,6 +27,7 @@ interface VectorSearchPluginSettings {
     chunkOverlap: number;
     chunkingStrategy: 'character' | 'paragraph';
     debounceTime: number;
+    fileProcessingDebounceTime: number;
     modelName: string;
     vectors: VectorData[];
 }
@@ -38,6 +40,7 @@ const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
     chunkOverlap: 100,
     chunkingStrategy: 'paragraph',
     debounceTime: 300,
+    fileProcessingDebounceTime: 2000,
     modelName: 'nomic-embed-text:latest',
     vectors: [] 
 }
@@ -45,10 +48,45 @@ const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
 export default class VectorSearchPlugin extends Plugin {
     settings: VectorSearchPluginSettings;
     vectorStore: Map<string, VectorData> = new Map();
+    private debouncedProcessFile: Debouncer<[file: TFile], Promise<void>>;
 
     async onload() {
 
         await this.loadSettings();
+
+        // Initialize debounced function after settings are loaded
+        this.debouncedProcessFile = debounce(
+            async (file: TFile) => {
+                await this.processFile(file);
+            }, 
+            this.settings.fileProcessingDebounceTime
+        );
+
+        this.registerEvent(
+            this.app.vault.on('modify', async (file) => {
+                if (file instanceof TFile && file.extension === 'md') {
+                    this.debouncedProcessFile(file);
+                }
+            })
+        );
+
+        this.registerEvent(
+            this.app.vault.on('rename', async (file, oldPath) => {
+                if (file instanceof TFile && file.extension === 'md') {
+                    this.removeFileVectors(oldPath);
+                    await this.debouncedProcessFile(file);
+                }
+            })
+        );
+    
+        this.registerEvent(
+            this.app.vault.on('delete', (file) => {
+                if (file instanceof TFile && file.extension === 'md') {
+                    this.removeFileVectors(file.path);
+                    this.saveSettings();
+                }
+            })
+        );
         
         // Check Ollama and model availability before enabling plugin features
         const isReady = await this.checkRequirements();
@@ -89,6 +127,56 @@ export default class VectorSearchPlugin extends Plugin {
 
     async saveSettings() {
         await this.saveData(this.settings);
+    }
+
+    private removeFileVectors(filePath: string): void {
+        // Remove all vectors for the given file path
+        const normalizedPath = normalizePath(filePath);
+        for (const [key, value] of this.vectorStore.entries()) {
+            if (value.path === normalizedPath) {
+                this.vectorStore.delete(key);
+            }
+        }
+    }
+
+    private async processFile(file: TFile): Promise<void> {
+        try {
+            const content = await this.app.vault.read(file);
+            const chunks = this.splitIntoChunks(content);
+            
+            // Remove existing vectors for this file
+            this.removeFileVectors(file.path);
+            
+            for (let i = 0; i < chunks.length; i++) {
+                const chunk = chunks[i];
+                const startLine = content.slice(0, content.indexOf(chunk)).split('\n').length - 1;
+                const endLine = startLine + chunk.split('\n').length;
+                
+                const embedding = await this.getEmbedding(chunk);
+                if (!embedding || embedding.length === 0) {
+                    throw new Error('Failed to generate embedding');
+                }
+                
+                const vectorData: VectorData = {
+                    path: normalizePath(file.path),
+                    embedding: embedding,
+                    title: `${file.basename} (chunk ${i + 1}/${chunks.length})`,
+                    startLine,
+                    endLine
+                };
+                
+                const key = `${vectorData.path}#${i}`;
+                this.vectorStore.set(key, vectorData);
+            }
+            
+            // Save after successful processing
+            this.settings.vectors = Array.from(this.vectorStore.values());
+            await this.saveSettings();
+            
+        } catch (error) {
+            console.error(`Failed to process file ${file.path}:`, error);
+            new Notice(`Failed to process file: ${file.basename}`);
+        }
     }
 
     private compareVersions(a: string, b: string): number {
@@ -456,6 +544,18 @@ class VectorSearchSettingTab extends PluginSettingTab {
                 .setDynamicTooltip()
                 .onChange(async (value) => {
                     this.plugin.settings.debounceTime = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('File processing delay')
+            .setDesc('Delay in milliseconds before processing file changes')
+            .addSlider(slider => slider
+                .setLimits(500, 5000, 500)
+                .setValue(this.plugin.settings.fileProcessingDebounceTime)
+                .setDynamicTooltip()
+                .onChange(async (value) => {
+                    this.plugin.settings.fileProcessingDebounceTime = value;
                     await this.plugin.saveSettings();
                 }));
 
