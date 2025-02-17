@@ -8,6 +8,9 @@ This plugin adds semantic search capabilities to Obsidian using Ollama's embeddi
 -   🤖 Powered by Ollama's embedding model
 -   📊 Configurable similarity threshold
 -   🚀 Fast local search once embeddings are generated
+-   ⚡ Automatic file change detection and updates
+-   📝 Smart text chunking strategies
+-   🔄 Efficient incremental updates
 
 ## Prerequisites
 
@@ -115,7 +118,21 @@ The plugin logs all API calls and operations to the Developer Console (Ctrl+Shif
 
 ```json
 {
-	"ollamaURL": "http://localhost:11434",
-	"searchThreshold": 0.7
+    "ollamaURL": "http://localhost:11434",
+    "searchThreshold": 0.7,
+    "chunkSize": 500,
+    "chunkOverlap": 100,
+    "chunkingStrategy": "paragraph",
+    "fileProcessingDebounceTime": 2000
 }
 ```
+
+### Chunking Strategies
+- **Paragraph**: Splits text by paragraphs (default)
+- **Character**: Splits text by character count with overlap
+
+### File Processing
+- Automatically detects file changes
+- Updates vectors when files are modified
+- Handles file renames and deletions
+- Debounced processing to prevent overload
