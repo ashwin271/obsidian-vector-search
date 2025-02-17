@@ -7,55 +7,63 @@
 - [x] Simple search modal
 - [x] JSON-based persistence
 
-### v0.2.0 - Core Stability
+### v0.2.0 - Core Stability ✓
 - [x] Efficient vector storage and retrieval
   - [x] Optimize JSON structure for large datasets
   - [x] Implement proper chunking strategy
   - [ ] Add compression for vector storage
-- [ ] Robust index management
-  - [ ] File change detection system
-  - [ ] Incremental updates
+- [x] Robust index management
+  - [x] File change detection system
+  - [x] Incremental updates
   - [ ] Background indexing with cancelation
 - [ ] Error handling and recovery
+  - [x] Basic error handling
   - [ ] Connection error recovery
   - [ ] Corrupted index recovery
   - [ ] Proper error messaging
 
-### v0.3.0 - Search Engine Improvements
-- [ ] Advanced vector operations
-  - [ ] Batch vector processing
-  - [ ] Caching mechanism for frequent searches
-  - [ ] Optimized similarity calculations
-- [ ] Search quality
-  - [ ] Improved relevance scoring
-  - [ ] Context-aware searching
-  - [ ] Basic filtering (paths, folders)
-- [ ] Resource management
+### v0.3.0 - Essential UX
+- [ ] Critical First-Time Experience
+  - [ ] Auto-indexing on first install
+  - [ ] Setup wizard for Ollama requirements
+  - [ ] Basic error recovery
+  - [ ] Clear progress indicators
+- [ ] Core Search Improvements
+  - [ ] Loading states during search
+  - [ ] Better result previews
+  - [ ] Basic keyboard shortcuts
+- [ ] Settings Enhancements
+  - [ ] Auto-rebuild on chunking setting changes
+  - [ ] Clear setting descriptions
+  - [ ] Rebuild confirmations
+
+### v0.4.0 - Performance & Reliability
+- [ ] Performance Optimization
+  - [ ] Vector compression
   - [ ] Memory usage optimization
-  - [ ] Index size management
-  - [ ] Performance monitoring
+  - [ ] Search response caching
+- [ ] Stability Improvements
+  - [ ] Robust error handling
+  - [ ] Connection recovery system
+  - [ ] Status indicators
+  - [ ] Operation statistics
+- [ ] Resource Management
+  - [ ] Better memory handling
+  - [ ] Index size optimization
+  - [ ] Background processing
 
-### v0.4.0 - User Experience
-- [ ] Enhanced search interface
-  - [ ] Keyboard navigation
-  - [ ] Result previews
-  - [ ] Loading states
-- [ ] Search customization
-  - [ ] Configurable result templates
-  - [ ] Search filters UI
-  - [ ] User preferences
-- [ ] Mobile optimization
-
-### v1.0.0 - Production Release
-- [ ] Performance optimization
-  - [ ] Search response time
-  - [ ] Index update speed
-  - [ ] Memory footprint
-- [ ] Quality assurance
-  - [ ] Comprehensive testing
-  - [ ] Error tracking
-  - [ ] Performance metrics
-- [ ] Documentation
+### v1.0.0 - Polish & Advanced Features
+- [ ] Advanced Search Features
+  - [ ] Search history
+  - [ ] Recent searches
+  - [ ] Folder/tag filters
+  - [ ] Advanced result formatting
+- [ ] Documentation & Testing
+  - [ ] Comprehensive user guide
   - [ ] API documentation
-  - [ ] User guides
   - [ ] Performance guidelines
+  - [ ] Thorough testing
+- [ ] Final Polish
+  - [ ] UI/UX refinements
+  - [ ] Advanced error messaging
+  - [ ] Setting validations
