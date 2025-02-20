@@ -34,7 +34,7 @@ interface VectorSearchPluginSettings {
 
 const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
     ollamaURL: 'http://localhost:11434',
-    searchThreshold: 0.8,
+    searchThreshold: 0.5,
     maxResults: 10,
     chunkSize: 500,
     chunkOverlap: 100,
