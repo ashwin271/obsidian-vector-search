@@ -1,6 +1,6 @@
 {
     "name": "vector-search",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Semantic search for your notes using Ollama and nomic-embed-text embeddings. Requires Ollama installation.",
     "main": "main.js",
     "scripts": {
@@ -28,16 +28,14 @@
         "@typescript-eslint/eslint-plugin": "5.29.0",
         "@typescript-eslint/parser": "5.29.0",
         "builtin-modules": "3.3.0",
-        "esbuild": "0.17.3",
+        "esbuild": "0.25.5",
         "obsidian": "latest",
         "tslib": "2.4.0",
-        "typescript": "4.7.4",
+        "typescript": "^5.8.3",
         "jest": "^29.0.0",
         "@types/jest": "^29.0.0"
     },
-    "dependencies": {
-        "node-fetch": "^3.3.0"
-    },
+    "dependencies": {},
     "repository": {
         "type": "git",
         "url": "https://github.com/ashwin271/obsidian-vector-search"

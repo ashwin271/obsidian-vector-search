@@ -15,8 +15,15 @@ interface VectorData {
     path: string;
     embedding: number[];
     title: string;
+    chunkIndex: number;
     startLine: number;
     endLine: number;
+}
+
+interface TextChunk {
+    text: string;
+    startOffset: number;
+    endOffset: number;
 }
 
 interface VectorSearchPluginSettings {
@@ -30,6 +37,8 @@ interface VectorSearchPluginSettings {
     fileProcessingDebounceTime: number;
     modelName: string;
     vectors: VectorData[];
+    lastIndexTime: number | null;
+    lastIndexCount: number;
 }
 
 const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
@@ -42,13 +51,18 @@ const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
     debounceTime: 300,
     fileProcessingDebounceTime: 2000,
     modelName: 'nomic-embed-text:latest',
-    vectors: [] 
+    vectors: [],
+    lastIndexTime: null,
+    lastIndexCount: 0
 }
 
 export default class VectorSearchPlugin extends Plugin {
     settings: VectorSearchPluginSettings;
     vectorStore: Map<string, VectorData> = new Map();
     private debouncedProcessFile: Debouncer<[file: TFile], Promise<void>>;
+    private requirementsOk: boolean | null = null;
+    private isIndexing = false;
+    private cancelIndexing = false;
 
     async onload() {
 
@@ -80,20 +94,17 @@ export default class VectorSearchPlugin extends Plugin {
         );
     
         this.registerEvent(
-            this.app.vault.on('delete', (file) => {
+            this.app.vault.on('delete', async (file) => {
                 if (file instanceof TFile && file.extension === 'md') {
                     this.removeFileVectors(file.path);
-                    this.saveSettings();
+                    await this.saveVectorStore();
+                    this.settings.lastIndexTime = Date.now();
+                    this.settings.lastIndexCount = this.vectorStore.size;
+                    await this.saveSettings();
                 }
             })
         );
         
-        // Check Ollama and model availability before enabling plugin features
-        const isReady = await this.checkRequirements();
-        if (!isReady) {
-            return; // Don't load plugin features if requirements aren't met
-        }
-
         // Add a ribbon icon for rebuilding the vector index
         this.addRibbonIcon('refresh-cw', 'Rebuild vector index', async () => {
             await this.buildVectorIndex();
@@ -109,6 +120,23 @@ export default class VectorSearchPlugin extends Plugin {
             }
         });
 
+        this.addCommand({
+            id: 'cancel-vector-index',
+            name: 'Cancel vector indexing',
+            checkCallback: (checking) => {
+                if (!this.isIndexing) {
+                    return false;
+                }
+
+                if (!checking) {
+                    this.cancelIndexing = true;
+                    new Notice('Canceling vector indexing...');
+                }
+
+                return true;
+            }
+        });
+
         // Add settings tab
         this.addSettingTab(new VectorSearchSettingTab(this.app, this));
     }
@@ -119,14 +147,79 @@ export default class VectorSearchPlugin extends Plugin {
 
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-        // Populate vectorStore from settings
-        this.vectorStore = new Map(
-            this.settings.vectors.map(v => [v.path, v])
-        );
+        await this.loadVectorStore();
     }
 
     async saveSettings() {
         await this.saveData(this.settings);
+    }
+
+    private getVectorStoreDir(): string {
+        return normalizePath(`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+    }
+
+    private getVectorStorePath(): string {
+        return normalizePath(`${this.getVectorStoreDir()}/vectors.json`);
+    }
+
+    private async loadVectorStore(): Promise<void> {
+        const adapter = this.app.vault.adapter;
+        const vectorPath = this.getVectorStorePath();
+        let vectors: VectorData[] = [];
+
+        if (await adapter.exists(vectorPath)) {
+            try {
+                const raw = await adapter.read(vectorPath);
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    vectors = parsed as VectorData[];
+                }
+            } catch (error) {
+                console.error('[Vector Search] Failed to load vector store:', error);
+            }
+        } else if (this.settings.vectors.length > 0) {
+            vectors = this.settings.vectors;
+            await this.saveVectorStore(vectors);
+            this.settings.vectors = [];
+            if (this.settings.lastIndexCount === 0) {
+                this.settings.lastIndexCount = vectors.length;
+            }
+            await this.saveSettings();
+        }
+
+        this.vectorStore = new Map(
+            vectors.map((v, index) => {
+                const chunkIndex = Number.isFinite(v.chunkIndex) ? v.chunkIndex : index;
+                const key = `${v.path}#${chunkIndex}`;
+                return [key, { ...v, chunkIndex }];
+            })
+        );
+    }
+
+    private async saveVectorStore(vectors?: VectorData[]): Promise<void> {
+        const adapter = this.app.vault.adapter;
+        const vectorDir = this.getVectorStoreDir();
+        const vectorPath = this.getVectorStorePath();
+        const payload = vectors ?? Array.from(this.vectorStore.values());
+
+        if (!(await adapter.exists(vectorDir))) {
+            await adapter.mkdir(vectorDir);
+        }
+
+        await adapter.write(vectorPath, JSON.stringify(payload, null, 2));
+    }
+
+    async clearVectorStore(): Promise<void> {
+        const adapter = this.app.vault.adapter;
+        const vectorPath = this.getVectorStorePath();
+        this.vectorStore.clear();
+        if (await adapter.exists(vectorPath)) {
+            await adapter.remove(vectorPath);
+        }
+    }
+
+    markRequirementsStale(): void {
+        this.requirementsOk = null;
     }
 
     private removeFileVectors(filePath: string): void {
@@ -141,6 +234,11 @@ export default class VectorSearchPlugin extends Plugin {
 
     private async processFile(file: TFile): Promise<void> {
         try {
+            const isReady = await this.ensureRequirements(false);
+            if (!isReady) {
+                return;
+            }
+
             const content = await this.app.vault.read(file);
             const chunks = this.splitIntoChunks(content);
             
@@ -149,18 +247,20 @@ export default class VectorSearchPlugin extends Plugin {
             
             for (let i = 0; i < chunks.length; i++) {
                 const chunk = chunks[i];
-                const startLine = content.slice(0, content.indexOf(chunk)).split('\n').length - 1;
-                const endLine = startLine + chunk.split('\n').length;
+                const startLine = content.slice(0, chunk.startOffset).split('\n').length - 1;
+                const endLine = startLine + chunk.text.split('\n').length;
                 
-                const embedding = await this.getEmbedding(chunk);
+                const embedding = await this.getEmbedding(chunk.text);
                 if (!embedding || embedding.length === 0) {
-                    throw new Error('Failed to generate embedding');
+                    console.error(`[Vector Search] Skipping empty embedding for ${file.path} (chunk ${i + 1}/${chunks.length}).`);
+                    continue;
                 }
                 
                 const vectorData: VectorData = {
                     path: normalizePath(file.path),
                     embedding: embedding,
                     title: `${file.basename} (chunk ${i + 1}/${chunks.length})`,
+                    chunkIndex: i,
                     startLine,
                     endLine
                 };
@@ -170,7 +270,9 @@ export default class VectorSearchPlugin extends Plugin {
             }
             
             // Save after successful processing
-            this.settings.vectors = Array.from(this.vectorStore.values());
+            await this.saveVectorStore();
+            this.settings.lastIndexTime = Date.now();
+            this.settings.lastIndexCount = this.vectorStore.size;
             await this.saveSettings();
             
         } catch (error) {
@@ -193,7 +295,7 @@ export default class VectorSearchPlugin extends Plugin {
         return 0;
     }
 
-    private async checkRequirements(): Promise<boolean> {
+    private async checkRequirements(showNotice: boolean): Promise<boolean> {
         try {
             // Check if Ollama is running
             const ollamaResponse = await fetch(`${this.settings.ollamaURL}/api/version`, {
@@ -201,7 +303,9 @@ export default class VectorSearchPlugin extends Plugin {
             });
 
             if (!ollamaResponse.ok) {
-                new Notice('Could not connect to Ollama server. Please ensure Ollama is installed and running.');
+                if (showNotice) {
+                    new Notice('Could not connect to Ollama server. Please ensure Ollama is installed and running.');
+                }
                 console.error('[Vector Search] Ollama connection failed');
                 return false;
             }
@@ -212,7 +316,9 @@ export default class VectorSearchPlugin extends Plugin {
             });
 
             if (!modelResponse.ok) {
-                new Notice('Could not check available models. Please verify Ollama installation.');
+                if (showNotice) {
+                    new Notice('Could not check available models. Please verify Ollama installation.');
+                }
                 return false;
             }
 
@@ -222,7 +328,9 @@ export default class VectorSearchPlugin extends Plugin {
             );
 
             if (!hasModel) {
-                new Notice(`Required model '${this.settings.modelName}' not found. Please run: ollama pull ${this.settings.modelName}`);
+                if (showNotice) {
+                    new Notice(`Required model '${this.settings.modelName}' not found. Please run: ollama pull ${this.settings.modelName}`);
+                }
                 console.error('[Vector Search] Required model not installed');
                 return false;
             }
@@ -230,15 +338,31 @@ export default class VectorSearchPlugin extends Plugin {
             return true;
 
         } catch (error) {
-            new Notice(`
-                Vector Search Plugin Requirements Not Met:
-                1. Install Ollama from ollama.ai
-                2. Start Ollama service
-                3. Run: ollama pull ${this.settings.modelName}
-            `);
+            if (showNotice) {
+                new Notice(`
+                    Vector Search Plugin Requirements Not Met:
+                    1. Install Ollama from ollama.ai
+                    2. Start Ollama service
+                    3. Run: ollama pull ${this.settings.modelName}
+                `);
+            }
             console.error('[Vector Search] Requirements check failed:', error);
             return false;
         }
+    }
+
+    async ensureRequirements(showNotice: boolean): Promise<boolean> {
+        if (this.requirementsOk === true) {
+            return true;
+        }
+
+        if (!showNotice && this.requirementsOk === false) {
+            return false;
+        }
+
+        const isReady = await this.checkRequirements(showNotice);
+        this.requirementsOk = isReady;
+        return isReady;
     }
 
     private async checkOllamaConnection(): Promise<boolean> {
@@ -254,38 +378,94 @@ export default class VectorSearchPlugin extends Plugin {
         }
     }
 
-    private splitIntoChunks(content: string): string[] {
+    private splitIntoChunks(content: string): TextChunk[] {
         if (this.settings.chunkSize === 0) {
-            return [content];
+            return [{
+                text: content,
+                startOffset: 0,
+                endOffset: content.length
+            }];
         }
 
         if (this.settings.chunkingStrategy === 'paragraph') {
-            const paragraphs = content.split(/\n\s*\n/);
-            const chunks: string[] = [];
-            let currentChunk = '';
+            const paragraphs: Array<{ start: number; end: number }> = [];
+            const lines = content.split('\n');
+            let offset = 0;
+            let paragraphStart = 0;
+
+            for (const line of lines) {
+                const lineEnd = offset + line.length;
+                const isBlank = line.trim().length === 0;
+                if (isBlank) {
+                    if (paragraphStart < offset) {
+                        paragraphs.push({ start: paragraphStart, end: offset });
+                    }
+                    paragraphStart = lineEnd + 1;
+                }
+                offset = lineEnd + 1;
+            }
+            if (paragraphStart < content.length) {
+                paragraphs.push({ start: paragraphStart, end: content.length });
+            }
+
+            const chunks: TextChunk[] = [];
+            let chunkStart = -1;
+            let chunkEnd = -1;
+            let chunkLength = 0;
 
             for (const paragraph of paragraphs) {
-                if ((currentChunk + paragraph).length > this.settings.chunkSize) {
-                    if (currentChunk) {
-                        chunks.push(currentChunk.trim());
-                    }
-                    currentChunk = paragraph;
+                const paragraphText = content.slice(paragraph.start, paragraph.end);
+                if (paragraphText.trim().length === 0) {
+                    continue;
+                }
+
+                if (chunkStart === -1) {
+                    chunkStart = paragraph.start;
+                    chunkEnd = paragraph.end;
+                    chunkLength = paragraphText.length;
+                    continue;
+                }
+
+                const gap = paragraph.start - chunkEnd;
+                const nextLength = chunkLength + gap + paragraphText.length;
+                if (nextLength > this.settings.chunkSize && chunkLength > 0) {
+                    chunks.push({
+                        text: content.slice(chunkStart, chunkEnd),
+                        startOffset: chunkStart,
+                        endOffset: chunkEnd
+                    });
+                    chunkStart = paragraph.start;
+                    chunkEnd = paragraph.end;
+                    chunkLength = paragraphText.length;
                 } else {
-                    currentChunk = currentChunk ? `${currentChunk}\n\n${paragraph}` : paragraph;
+                    chunkEnd = paragraph.end;
+                    chunkLength = nextLength;
                 }
             }
-            if (currentChunk) {
-                chunks.push(currentChunk.trim());
+
+            if (chunkStart !== -1) {
+                chunks.push({
+                    text: content.slice(chunkStart, chunkEnd),
+                    startOffset: chunkStart,
+                    endOffset: chunkEnd
+                });
             }
+
             return chunks;
         }
 
         // Character-based chunking
-        const chunks: string[] = [];
+        const chunks: TextChunk[] = [];
         let i = 0;
         while (i < content.length) {
-            const chunk = content.slice(i, i + this.settings.chunkSize);
-            chunks.push(chunk);
+            const startOffset = i;
+            const endOffset = Math.min(i + this.settings.chunkSize, content.length);
+            const chunk = content.slice(startOffset, endOffset);
+            chunks.push({
+                text: chunk,
+                startOffset,
+                endOffset
+            });
             i += this.settings.chunkSize - this.settings.chunkOverlap;
         }
         return chunks;
@@ -305,7 +485,20 @@ export default class VectorSearchPlugin extends Plugin {
                 })
             });
 
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => '');
+                console.error(`[Vector Search] Ollama error ${response.status} ${response.statusText}:`, errorText);
+                new Notice('Ollama error while generating embeddings. Check console for details.');
+                return [];
+            }
+
             const data = await response.json();
+            if (!Array.isArray(data.embedding)) {
+                console.error('[Vector Search] Invalid embedding response:', data);
+                new Notice('Invalid embedding response from Ollama. Check console for details.');
+                return [];
+            }
+
             return data.embedding;
         } catch (error) {
             console.error('[Vector Search] Error getting embedding:', error);
@@ -316,13 +509,32 @@ export default class VectorSearchPlugin extends Plugin {
 
     // Calculate cosine similarity between two vectors
     cosineSimilarity(vec1: number[], vec2: number[]): number {
+        if (vec1.length === 0 || vec2.length === 0 || vec1.length !== vec2.length) {
+            return 0;
+        }
+
         const dotProduct = vec1.reduce((acc, val, i) => acc + val * vec2[i], 0);
         const mag1 = Math.sqrt(vec1.reduce((acc, val) => acc + val * val, 0));
         const mag2 = Math.sqrt(vec2.reduce((acc, val) => acc + val * val, 0));
+        if (mag1 === 0 || mag2 === 0) {
+            return 0;
+        }
         return dotProduct / (mag1 * mag2);
     }
 
     async buildVectorIndex() {
+        const isReady = await this.ensureRequirements(true);
+        if (!isReady) {
+            return;
+        }
+
+        if (this.isIndexing) {
+            new Notice('Indexing already in progress.');
+            return;
+        }
+
+        this.isIndexing = true;
+        this.cancelIndexing = false;
         this.vectorStore.clear();
         const files = this.app.vault.getMarkdownFiles();
         
@@ -330,51 +542,83 @@ export default class VectorSearchPlugin extends Plugin {
         const total = files.length;
         
         const progressNotice = new Notice(
-            `Indexing files: 0/${total} (0%)`,
+            `Indexing files: 0/${total} (0%). Use the command "Cancel vector indexing" to stop.`,
             0
         );
         
-        for (const file of files) {
-            const content = await this.app.vault.read(file);
-            const chunks = this.splitIntoChunks(content);
-            const lines = content.split('\n');
-            
-            for (let i = 0; i < chunks.length; i++) {
-                const chunk = chunks[i];
-                const startLine = content.slice(0, content.indexOf(chunk)).split('\n').length - 1;
-                const endLine = startLine + chunk.split('\n').length;
-                
-                const embedding = await this.getEmbedding(chunk);
-                
-                const vectorData: VectorData = {
-                    path: normalizePath(file.path),
-                    embedding: embedding,
-                    title: `${file.basename} (chunk ${i + 1}/${chunks.length})`,
-                    startLine,
-                    endLine
-                };
-                
-                const key = `${vectorData.path}#${i}`;
-                this.vectorStore.set(key, vectorData);
-            }
-            
-            processed++;
-            progressNotice.setMessage(
-                `Indexing files: ${processed}/${total} (${Math.round((processed / total) * 100)}%)`
-            );
-        }
+        try {
+            let canceled = false;
+            for (const file of files) {
+                if (this.cancelIndexing) {
+                    canceled = true;
+                    break;
+                }
 
-        this.settings.vectors = Array.from(this.vectorStore.values());
-        await this.saveSettings();
-        
-        progressNotice.hide();
-        new Notice('Vector index rebuilt successfully!');
+                const content = await this.app.vault.read(file);
+                const chunks = this.splitIntoChunks(content);
+                
+                for (let i = 0; i < chunks.length; i++) {
+                    if (this.cancelIndexing) {
+                        canceled = true;
+                        break;
+                    }
+
+                    const chunk = chunks[i];
+                    const startLine = content.slice(0, chunk.startOffset).split('\n').length - 1;
+                    const endLine = startLine + chunk.text.split('\n').length;
+                    
+                    const embedding = await this.getEmbedding(chunk.text);
+                    if (!embedding || embedding.length === 0) {
+                        console.error(`[Vector Search] Skipping empty embedding for ${file.path} (chunk ${i + 1}/${chunks.length}).`);
+                        continue;
+                    }
+                    
+                    const vectorData: VectorData = {
+                        path: normalizePath(file.path),
+                        embedding: embedding,
+                        title: `${file.basename} (chunk ${i + 1}/${chunks.length})`,
+                        chunkIndex: i,
+                        startLine,
+                        endLine
+                    };
+                    
+                    const key = `${vectorData.path}#${i}`;
+                    this.vectorStore.set(key, vectorData);
+                }
+
+                if (canceled) {
+                    break;
+                }
+                
+                processed++;
+                progressNotice.setMessage(
+                    `Indexing files: ${processed}/${total} (${Math.round((processed / total) * 100)}%)`
+                );
+            }
+
+            if (canceled) {
+                await this.loadVectorStore();
+                new Notice('Vector indexing canceled. Existing index preserved.');
+                return;
+            }
+
+            await this.saveVectorStore();
+            this.settings.lastIndexTime = Date.now();
+            this.settings.lastIndexCount = this.vectorStore.size;
+            await this.saveSettings();
+
+            new Notice('Vector index rebuilt successfully!');
+        } finally {
+            progressNotice.hide();
+            this.isIndexing = false;
+        }
     }
 }
 
 class SearchModal extends Modal {
     private plugin: VectorSearchPlugin;
     private searchInput: HTMLInputElement;
+    private statusDiv: HTMLDivElement;
     private resultsDiv: HTMLDivElement;
 
     constructor(app: App, plugin: VectorSearchPlugin) {
@@ -392,6 +636,12 @@ class SearchModal extends Modal {
             type: 'text',
             placeholder: 'Type to search similar notes...'
         });
+
+        const actions = searchContainer.createDiv('search-actions');
+        const searchButton = actions.createEl('button', { text: 'Search' });
+        const selectionButton = actions.createEl('button', { text: 'Use selection' });
+
+        this.statusDiv = contentEl.createDiv('search-status');
         
         // Create results container
         this.resultsDiv = contentEl.createDiv('search-results');
@@ -401,25 +651,61 @@ class SearchModal extends Modal {
             const query = this.searchInput.value;
             if (query.length < 3) {
                 this.resultsDiv.empty();
+                this.statusDiv.empty();
                 return;
             }
             await this.performSearch(query);
         }, this.plugin.settings.debounceTime, true);
 
         this.searchInput.addEventListener('input', debouncedSearch);
-
+        searchButton.addEventListener('click', async () => {
+            await this.performSearch(this.searchInput.value);
+        });
+        selectionButton.addEventListener('click', async () => {
+            const selection = this.getActiveSelection();
+            if (selection.length < 3) {
+                new Notice('Select at least 3 characters to search.');
+                return;
+            }
+            this.searchInput.value = selection;
+            await this.performSearch(selection);
+        });
 
         // Focus input
         this.searchInput.focus();
     }
 
+    private getActiveSelection(): string {
+        const editor = this.app.workspace.activeEditor?.editor;
+        return editor?.getSelection().trim() ?? '';
+    }
+
     async performSearch(query: string) {
+        if (query.length < 3) {
+            this.resultsDiv.setText('Type at least 3 characters to search.');
+            this.statusDiv.empty();
+            return;
+        }
+        this.statusDiv.setText('Searching...');
         if (this.plugin.vectorStore.size === 0) {
             this.resultsDiv.setText('Vector index is empty. Please rebuild the index first.');
+            this.statusDiv.empty();
+            return;
+        }
+
+        const isReady = await this.plugin.ensureRequirements(true);
+        if (!isReady) {
+            this.resultsDiv.setText('Ollama is unavailable. Check the plugin settings and try again.');
+            this.statusDiv.empty();
             return;
         }
 
         const queryEmbedding = await this.plugin.getEmbedding(query);
+        if (queryEmbedding.length === 0) {
+            this.resultsDiv.setText('Failed to generate an embedding for the query.');
+            this.statusDiv.empty();
+            return;
+        }
         const results: Array<{vectorData: VectorData, similarity: number}> = [];
 
         for (const vectorData of this.plugin.vectorStore.values()) {
@@ -431,6 +717,7 @@ class SearchModal extends Modal {
 
         results.sort((a, b) => b.similarity - a.similarity);
         this.displayResults(results.slice(0, this.plugin.settings.maxResults));
+        this.statusDiv.empty();
     }
 
     displayResults(results: Array<{vectorData: VectorData, similarity: number}>) {
@@ -444,9 +731,10 @@ class SearchModal extends Modal {
         const list = this.resultsDiv.createEl('ul');
         for (const result of results) {
             const item = list.createEl('li');
-            const link = item.createEl('a', {
-                text: `${result.vectorData.title} (${(result.similarity * 100).toFixed(2)}%)`,
-                href: '#'
+            const link = item.createEl('a', { text: result.vectorData.title, href: '#' });
+            item.createEl('span', {
+                text: `${(result.similarity * 100).toFixed(2)}%`,
+                cls: 'similarity-score'
             });
             
             // Add line numbers info
@@ -484,6 +772,32 @@ class VectorSearchSettingTab extends PluginSettingTab {
     display(): void {
         const {containerEl} = this;
         containerEl.empty();
+        const lastIndexTime = this.plugin.settings.lastIndexTime
+            ? new Date(this.plugin.settings.lastIndexTime).toLocaleString()
+            : 'Never';
+
+        new Setting(containerEl).setName('Index').setHeading();
+
+        new Setting(containerEl)
+            .setName('Index status')
+            .setDesc(`Last updated: ${lastIndexTime}. Indexed chunks: ${this.plugin.settings.lastIndexCount}.`)
+            .addButton(button => button
+                .setButtonText('Rebuild')
+                .onClick(async () => {
+                    await this.plugin.buildVectorIndex();
+                    this.display();
+                }))
+            .addExtraButton(button => button
+                .setIcon('trash-2')
+                .setTooltip('Clear index')
+                .onClick(async () => {
+                    await this.plugin.clearVectorStore();
+                    this.plugin.settings.lastIndexTime = null;
+                    this.plugin.settings.lastIndexCount = 0;
+                    await this.plugin.saveSettings();
+                    new Notice('Vector index cleared.');
+                    this.display();
+                }));
 
         new Setting(containerEl).setName('Server configuration').setHeading();
         
@@ -495,6 +809,7 @@ class VectorSearchSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.ollamaURL)
                 .onChange(async (value) => {
                     this.plugin.settings.ollamaURL = value;
+                    this.plugin.markRequirementsStale();
                     await this.plugin.saveSettings();
                 }));
 
@@ -506,6 +821,7 @@ class VectorSearchSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.modelName)
                 .onChange(async (value) => {
                     this.plugin.settings.modelName = value;
+                    this.plugin.markRequirementsStale();
                     await this.plugin.saveSettings();
                 }));
 
