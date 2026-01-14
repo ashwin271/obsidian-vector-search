@@ -15,6 +15,7 @@ interface VectorData {
     path: string;
     embedding: number[];
     title: string;
+    chunkIndex: number;
     startLine: number;
     endLine: number;
 }
@@ -116,7 +117,11 @@ export default class VectorSearchPlugin extends Plugin {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
         // Populate vectorStore from settings
         this.vectorStore = new Map(
-            this.settings.vectors.map(v => [v.path, v])
+            this.settings.vectors.map((v, index) => {
+                const chunkIndex = Number.isFinite(v.chunkIndex) ? v.chunkIndex : index;
+                const key = `${v.path}#${chunkIndex}`;
+                return [key, { ...v, chunkIndex }];
+            })
         );
     }
 
@@ -165,6 +170,7 @@ export default class VectorSearchPlugin extends Plugin {
                     path: normalizePath(file.path),
                     embedding: embedding,
                     title: `${file.basename} (chunk ${i + 1}/${chunks.length})`,
+                    chunkIndex: i,
                     startLine,
                     endLine
                 };
@@ -381,6 +387,7 @@ export default class VectorSearchPlugin extends Plugin {
                     path: normalizePath(file.path),
                     embedding: embedding,
                     title: `${file.basename} (chunk ${i + 1}/${chunks.length})`,
+                    chunkIndex: i,
                     startLine,
                     endLine
                 };
