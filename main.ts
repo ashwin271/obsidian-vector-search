@@ -51,6 +51,7 @@ export default class VectorSearchPlugin extends Plugin {
     vectorStore: Map<string, VectorData> = new Map();
     private debouncedProcessFile: Debouncer<[file: TFile], Promise<void>>;
     private requirementsOk: boolean | null = null;
+    private isIndexing = false;
 
     async onload() {
 
@@ -360,6 +361,12 @@ export default class VectorSearchPlugin extends Plugin {
             return;
         }
 
+        if (this.isIndexing) {
+            new Notice('Indexing already in progress.');
+            return;
+        }
+
+        this.isIndexing = true;
         this.vectorStore.clear();
         const files = this.app.vault.getMarkdownFiles();
         
@@ -371,42 +378,45 @@ export default class VectorSearchPlugin extends Plugin {
             0
         );
         
-        for (const file of files) {
-            const content = await this.app.vault.read(file);
-            const chunks = this.splitIntoChunks(content);
-            const lines = content.split('\n');
-            
-            for (let i = 0; i < chunks.length; i++) {
-                const chunk = chunks[i];
-                const startLine = content.slice(0, content.indexOf(chunk)).split('\n').length - 1;
-                const endLine = startLine + chunk.split('\n').length;
+        try {
+            for (const file of files) {
+                const content = await this.app.vault.read(file);
+                const chunks = this.splitIntoChunks(content);
                 
-                const embedding = await this.getEmbedding(chunk);
+                for (let i = 0; i < chunks.length; i++) {
+                    const chunk = chunks[i];
+                    const startLine = content.slice(0, content.indexOf(chunk)).split('\n').length - 1;
+                    const endLine = startLine + chunk.split('\n').length;
+                    
+                    const embedding = await this.getEmbedding(chunk);
+                    
+                    const vectorData: VectorData = {
+                        path: normalizePath(file.path),
+                        embedding: embedding,
+                        title: `${file.basename} (chunk ${i + 1}/${chunks.length})`,
+                        chunkIndex: i,
+                        startLine,
+                        endLine
+                    };
+                    
+                    const key = `${vectorData.path}#${i}`;
+                    this.vectorStore.set(key, vectorData);
+                }
                 
-                const vectorData: VectorData = {
-                    path: normalizePath(file.path),
-                    embedding: embedding,
-                    title: `${file.basename} (chunk ${i + 1}/${chunks.length})`,
-                    chunkIndex: i,
-                    startLine,
-                    endLine
-                };
-                
-                const key = `${vectorData.path}#${i}`;
-                this.vectorStore.set(key, vectorData);
+                processed++;
+                progressNotice.setMessage(
+                    `Indexing files: ${processed}/${total} (${Math.round((processed / total) * 100)}%)`
+                );
             }
-            
-            processed++;
-            progressNotice.setMessage(
-                `Indexing files: ${processed}/${total} (${Math.round((processed / total) * 100)}%)`
-            );
-        }
 
-        this.settings.vectors = Array.from(this.vectorStore.values());
-        await this.saveSettings();
-        
-        progressNotice.hide();
-        new Notice('Vector index rebuilt successfully!');
+            this.settings.vectors = Array.from(this.vectorStore.values());
+            await this.saveSettings();
+            
+            new Notice('Vector index rebuilt successfully!');
+        } finally {
+            progressNotice.hide();
+            this.isIndexing = false;
+        }
     }
 }
 
