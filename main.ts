@@ -471,6 +471,10 @@ export default class VectorSearchPlugin extends Plugin {
                     const endLine = startLine + chunk.text.split('\n').length;
                     
                     const embedding = await this.getEmbedding(chunk.text);
+                    if (!embedding || embedding.length === 0) {
+                        console.error(`[Vector Search] Skipping empty embedding for ${file.path} (chunk ${i + 1}/${chunks.length}).`);
+                        continue;
+                    }
                     
                     const vectorData: VectorData = {
                         path: normalizePath(file.path),
