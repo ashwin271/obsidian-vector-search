@@ -1,11 +1,11 @@
 {
-    "id": "vector-search",
-    "name": "Vector Search",
-    "version": "0.2.0",
-    "minAppVersion": "1.7.7",
-    "description": "Semantic search for your notes using Ollama and nomic-embed-text embeddings. Requires Ollama installation.",
-    "author": "Ashwin A Murali",
-    "authorUrl": "https://github.com/ashwin271",
-    "fundingUrl": "https://buymeacoffee.com/ashwin271",
-    "isDesktopOnly": true
+	"id": "vector-search",
+	"name": "Vector Search",
+	"version": "0.3.0",
+	"minAppVersion": "1.7.7",
+	"description": "Semantic search for your notes using Ollama and nomic-embed-text embeddings. Requires Ollama installation.",
+	"author": "Ashwin A Murali",
+	"authorUrl": "https://github.com/ashwin271",
+	"fundingUrl": "https://buymeacoffee.com/ashwin271",
+	"isDesktopOnly": true
 }

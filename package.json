@@ -1,6 +1,6 @@
 {
     "name": "vector-search",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Semantic search for your notes using Ollama and nomic-embed-text embeddings. Requires Ollama installation.",
     "main": "main.js",
     "scripts": {
