@@ -338,7 +338,20 @@ export default class VectorSearchPlugin extends Plugin {
                 })
             });
 
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => '');
+                console.error(`[Vector Search] Ollama error ${response.status} ${response.statusText}:`, errorText);
+                new Notice('Ollama error while generating embeddings. Check console for details.');
+                return [];
+            }
+
             const data = await response.json();
+            if (!Array.isArray(data.embedding)) {
+                console.error('[Vector Search] Invalid embedding response:', data);
+                new Notice('Invalid embedding response from Ollama. Check console for details.');
+                return [];
+            }
+
             return data.embedding;
         } catch (error) {
             console.error('[Vector Search] Error getting embedding:', error);
