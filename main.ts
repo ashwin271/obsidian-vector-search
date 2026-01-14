@@ -49,6 +49,7 @@ export default class VectorSearchPlugin extends Plugin {
     settings: VectorSearchPluginSettings;
     vectorStore: Map<string, VectorData> = new Map();
     private debouncedProcessFile: Debouncer<[file: TFile], Promise<void>>;
+    private requirementsOk: boolean | null = null;
 
     async onload() {
 
@@ -88,12 +89,6 @@ export default class VectorSearchPlugin extends Plugin {
             })
         );
         
-        // Check Ollama and model availability before enabling plugin features
-        const isReady = await this.checkRequirements();
-        if (!isReady) {
-            return; // Don't load plugin features if requirements aren't met
-        }
-
         // Add a ribbon icon for rebuilding the vector index
         this.addRibbonIcon('refresh-cw', 'Rebuild vector index', async () => {
             await this.buildVectorIndex();
@@ -129,6 +124,10 @@ export default class VectorSearchPlugin extends Plugin {
         await this.saveData(this.settings);
     }
 
+    private markRequirementsStale(): void {
+        this.requirementsOk = null;
+    }
+
     private removeFileVectors(filePath: string): void {
         // Remove all vectors for the given file path
         const normalizedPath = normalizePath(filePath);
@@ -141,6 +140,11 @@ export default class VectorSearchPlugin extends Plugin {
 
     private async processFile(file: TFile): Promise<void> {
         try {
+            const isReady = await this.ensureRequirements(false);
+            if (!isReady) {
+                return;
+            }
+
             const content = await this.app.vault.read(file);
             const chunks = this.splitIntoChunks(content);
             
@@ -193,7 +197,7 @@ export default class VectorSearchPlugin extends Plugin {
         return 0;
     }
 
-    private async checkRequirements(): Promise<boolean> {
+    private async checkRequirements(showNotice: boolean): Promise<boolean> {
         try {
             // Check if Ollama is running
             const ollamaResponse = await fetch(`${this.settings.ollamaURL}/api/version`, {
@@ -201,7 +205,9 @@ export default class VectorSearchPlugin extends Plugin {
             });
 
             if (!ollamaResponse.ok) {
-                new Notice('Could not connect to Ollama server. Please ensure Ollama is installed and running.');
+                if (showNotice) {
+                    new Notice('Could not connect to Ollama server. Please ensure Ollama is installed and running.');
+                }
                 console.error('[Vector Search] Ollama connection failed');
                 return false;
             }
@@ -212,7 +218,9 @@ export default class VectorSearchPlugin extends Plugin {
             });
 
             if (!modelResponse.ok) {
-                new Notice('Could not check available models. Please verify Ollama installation.');
+                if (showNotice) {
+                    new Notice('Could not check available models. Please verify Ollama installation.');
+                }
                 return false;
             }
 
@@ -222,7 +230,9 @@ export default class VectorSearchPlugin extends Plugin {
             );
 
             if (!hasModel) {
-                new Notice(`Required model '${this.settings.modelName}' not found. Please run: ollama pull ${this.settings.modelName}`);
+                if (showNotice) {
+                    new Notice(`Required model '${this.settings.modelName}' not found. Please run: ollama pull ${this.settings.modelName}`);
+                }
                 console.error('[Vector Search] Required model not installed');
                 return false;
             }
@@ -230,15 +240,31 @@ export default class VectorSearchPlugin extends Plugin {
             return true;
 
         } catch (error) {
-            new Notice(`
-                Vector Search Plugin Requirements Not Met:
-                1. Install Ollama from ollama.ai
-                2. Start Ollama service
-                3. Run: ollama pull ${this.settings.modelName}
-            `);
+            if (showNotice) {
+                new Notice(`
+                    Vector Search Plugin Requirements Not Met:
+                    1. Install Ollama from ollama.ai
+                    2. Start Ollama service
+                    3. Run: ollama pull ${this.settings.modelName}
+                `);
+            }
             console.error('[Vector Search] Requirements check failed:', error);
             return false;
         }
+    }
+
+    private async ensureRequirements(showNotice: boolean): Promise<boolean> {
+        if (this.requirementsOk === true) {
+            return true;
+        }
+
+        if (!showNotice && this.requirementsOk === false) {
+            return false;
+        }
+
+        const isReady = await this.checkRequirements(showNotice);
+        this.requirementsOk = isReady;
+        return isReady;
     }
 
     private async checkOllamaConnection(): Promise<boolean> {
@@ -323,6 +349,11 @@ export default class VectorSearchPlugin extends Plugin {
     }
 
     async buildVectorIndex() {
+        const isReady = await this.ensureRequirements(true);
+        if (!isReady) {
+            return;
+        }
+
         this.vectorStore.clear();
         const files = this.app.vault.getMarkdownFiles();
         
@@ -419,6 +450,12 @@ class SearchModal extends Modal {
             return;
         }
 
+        const isReady = await this.plugin.ensureRequirements(true);
+        if (!isReady) {
+            this.resultsDiv.setText('Ollama is unavailable. Check the plugin settings and try again.');
+            return;
+        }
+
         const queryEmbedding = await this.plugin.getEmbedding(query);
         const results: Array<{vectorData: VectorData, similarity: number}> = [];
 
@@ -495,6 +532,7 @@ class VectorSearchSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.ollamaURL)
                 .onChange(async (value) => {
                     this.plugin.settings.ollamaURL = value;
+                    this.plugin.markRequirementsStale();
                     await this.plugin.saveSettings();
                 }));
 
@@ -506,6 +544,7 @@ class VectorSearchSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.modelName)
                 .onChange(async (value) => {
                     this.plugin.settings.modelName = value;
+                    this.plugin.markRequirementsStale();
                     await this.plugin.saveSettings();
                 }));
 
