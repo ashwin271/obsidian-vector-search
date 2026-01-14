@@ -37,6 +37,8 @@ interface VectorSearchPluginSettings {
     fileProcessingDebounceTime: number;
     modelName: string;
     vectors: VectorData[];
+    lastIndexTime: number | null;
+    lastIndexCount: number;
 }
 
 const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
@@ -49,7 +51,9 @@ const DEFAULT_SETTINGS: VectorSearchPluginSettings = {
     debounceTime: 300,
     fileProcessingDebounceTime: 2000,
     modelName: 'nomic-embed-text:latest',
-    vectors: [] 
+    vectors: [],
+    lastIndexTime: null,
+    lastIndexCount: 0
 }
 
 export default class VectorSearchPlugin extends Plugin {
@@ -94,6 +98,9 @@ export default class VectorSearchPlugin extends Plugin {
                 if (file instanceof TFile && file.extension === 'md') {
                     this.removeFileVectors(file.path);
                     await this.saveVectorStore();
+                    this.settings.lastIndexTime = Date.now();
+                    this.settings.lastIndexCount = this.vectorStore.size;
+                    await this.saveSettings();
                 }
             })
         );
@@ -174,6 +181,9 @@ export default class VectorSearchPlugin extends Plugin {
             vectors = this.settings.vectors;
             await this.saveVectorStore(vectors);
             this.settings.vectors = [];
+            if (this.settings.lastIndexCount === 0) {
+                this.settings.lastIndexCount = vectors.length;
+            }
             await this.saveSettings();
         }
 
@@ -197,6 +207,15 @@ export default class VectorSearchPlugin extends Plugin {
         }
 
         await adapter.write(vectorPath, JSON.stringify(payload, null, 2));
+    }
+
+    private async clearVectorStore(): Promise<void> {
+        const adapter = this.app.vault.adapter;
+        const vectorPath = this.getVectorStorePath();
+        this.vectorStore.clear();
+        if (await adapter.exists(vectorPath)) {
+            await adapter.remove(vectorPath);
+        }
     }
 
     private markRequirementsStale(): void {
@@ -252,6 +271,9 @@ export default class VectorSearchPlugin extends Plugin {
             
             // Save after successful processing
             await this.saveVectorStore();
+            this.settings.lastIndexTime = Date.now();
+            this.settings.lastIndexCount = this.vectorStore.size;
+            await this.saveSettings();
             
         } catch (error) {
             console.error(`Failed to process file ${file.path}:`, error);
@@ -581,6 +603,9 @@ export default class VectorSearchPlugin extends Plugin {
             }
 
             await this.saveVectorStore();
+            this.settings.lastIndexTime = Date.now();
+            this.settings.lastIndexCount = this.vectorStore.size;
+            await this.saveSettings();
 
             new Notice('Vector index rebuilt successfully!');
         } finally {
@@ -708,6 +733,32 @@ class VectorSearchSettingTab extends PluginSettingTab {
     display(): void {
         const {containerEl} = this;
         containerEl.empty();
+        const lastIndexTime = this.plugin.settings.lastIndexTime
+            ? new Date(this.plugin.settings.lastIndexTime).toLocaleString()
+            : 'Never';
+
+        new Setting(containerEl).setName('Index').setHeading();
+
+        new Setting(containerEl)
+            .setName('Index status')
+            .setDesc(`Last updated: ${lastIndexTime}. Indexed chunks: ${this.plugin.settings.lastIndexCount}.`)
+            .addButton(button => button
+                .setButtonText('Rebuild')
+                .onClick(async () => {
+                    await this.plugin.buildVectorIndex();
+                    this.display();
+                }))
+            .addExtraButton(button => button
+                .setIcon('trash-2')
+                .setTooltip('Clear index')
+                .onClick(async () => {
+                    await this.plugin.clearVectorStore();
+                    this.plugin.settings.lastIndexTime = null;
+                    this.plugin.settings.lastIndexCount = 0;
+                    await this.plugin.saveSettings();
+                    new Notice('Vector index cleared.');
+                    this.display();
+                }));
 
         new Setting(containerEl).setName('Server configuration').setHeading();
         
