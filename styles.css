@@ -38,6 +38,30 @@
     box-shadow: 0 0 0 2px var(--interactive-accent-hover);
 }
 
+.search-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.search-actions button {
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--background-modifier-border);
+    background-color: var(--background-secondary);
+    color: var(--text-normal);
+    cursor: pointer;
+}
+
+.search-actions button:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.search-status {
+    padding: 6px 12px;
+    color: var(--text-muted);
+}
+
 .search-results {
     max-height: 60vh;
     overflow-y: auto;
@@ -56,6 +80,9 @@
     border-radius: 6px;
     background-color: var(--background-secondary);
     transition: all 0.2s ease;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
 }
 
 .search-results li:hover {
@@ -66,9 +93,7 @@
 .search-results a {
     text-decoration: none;
     color: var(--text-normal);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex: 1 1 auto;
 }
 
 .search-results .similarity-score {
@@ -77,6 +102,13 @@
     padding: 2px 6px;
     border-radius: 4px;
     background-color: var(--background-modifier-border);
+}
+
+.search-result-lines {
+    width: 100%;
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 0.85em;
 }
 
 /* Progress Bar Styles */

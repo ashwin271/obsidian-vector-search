@@ -618,6 +618,7 @@ export default class VectorSearchPlugin extends Plugin {
 class SearchModal extends Modal {
     private plugin: VectorSearchPlugin;
     private searchInput: HTMLInputElement;
+    private statusDiv: HTMLDivElement;
     private resultsDiv: HTMLDivElement;
 
     constructor(app: App, plugin: VectorSearchPlugin) {
@@ -635,6 +636,12 @@ class SearchModal extends Modal {
             type: 'text',
             placeholder: 'Type to search similar notes...'
         });
+
+        const actions = searchContainer.createDiv('search-actions');
+        const searchButton = actions.createEl('button', { text: 'Search' });
+        const selectionButton = actions.createEl('button', { text: 'Use selection' });
+
+        this.statusDiv = contentEl.createDiv('search-status');
         
         // Create results container
         this.resultsDiv = contentEl.createDiv('search-results');
@@ -644,31 +651,61 @@ class SearchModal extends Modal {
             const query = this.searchInput.value;
             if (query.length < 3) {
                 this.resultsDiv.empty();
+                this.statusDiv.empty();
                 return;
             }
             await this.performSearch(query);
         }, this.plugin.settings.debounceTime, true);
 
         this.searchInput.addEventListener('input', debouncedSearch);
-
+        searchButton.addEventListener('click', async () => {
+            await this.performSearch(this.searchInput.value);
+        });
+        selectionButton.addEventListener('click', async () => {
+            const selection = this.getActiveSelection();
+            if (selection.length < 3) {
+                new Notice('Select at least 3 characters to search.');
+                return;
+            }
+            this.searchInput.value = selection;
+            await this.performSearch(selection);
+        });
 
         // Focus input
         this.searchInput.focus();
     }
 
+    private getActiveSelection(): string {
+        const editor = this.app.workspace.activeEditor?.editor;
+        return editor?.getSelection().trim() ?? '';
+    }
+
     async performSearch(query: string) {
+        if (query.length < 3) {
+            this.resultsDiv.setText('Type at least 3 characters to search.');
+            this.statusDiv.empty();
+            return;
+        }
+        this.statusDiv.setText('Searching...');
         if (this.plugin.vectorStore.size === 0) {
             this.resultsDiv.setText('Vector index is empty. Please rebuild the index first.');
+            this.statusDiv.empty();
             return;
         }
 
         const isReady = await this.plugin.ensureRequirements(true);
         if (!isReady) {
             this.resultsDiv.setText('Ollama is unavailable. Check the plugin settings and try again.');
+            this.statusDiv.empty();
             return;
         }
 
         const queryEmbedding = await this.plugin.getEmbedding(query);
+        if (queryEmbedding.length === 0) {
+            this.resultsDiv.setText('Failed to generate an embedding for the query.');
+            this.statusDiv.empty();
+            return;
+        }
         const results: Array<{vectorData: VectorData, similarity: number}> = [];
 
         for (const vectorData of this.plugin.vectorStore.values()) {
@@ -680,6 +717,7 @@ class SearchModal extends Modal {
 
         results.sort((a, b) => b.similarity - a.similarity);
         this.displayResults(results.slice(0, this.plugin.settings.maxResults));
+        this.statusDiv.empty();
     }
 
     displayResults(results: Array<{vectorData: VectorData, similarity: number}>) {
@@ -693,9 +731,10 @@ class SearchModal extends Modal {
         const list = this.resultsDiv.createEl('ul');
         for (const result of results) {
             const item = list.createEl('li');
-            const link = item.createEl('a', {
-                text: `${result.vectorData.title} (${(result.similarity * 100).toFixed(2)}%)`,
-                href: '#'
+            const link = item.createEl('a', { text: result.vectorData.title, href: '#' });
+            item.createEl('span', {
+                text: `${(result.similarity * 100).toFixed(2)}%`,
+                cls: 'similarity-score'
             });
             
             // Add line numbers info
