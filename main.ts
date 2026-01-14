@@ -20,6 +20,12 @@ interface VectorData {
     endLine: number;
 }
 
+interface TextChunk {
+    text: string;
+    startOffset: number;
+    endOffset: number;
+}
+
 interface VectorSearchPluginSettings {
     ollamaURL: string;
     searchThreshold: number;
@@ -159,10 +165,10 @@ export default class VectorSearchPlugin extends Plugin {
             
             for (let i = 0; i < chunks.length; i++) {
                 const chunk = chunks[i];
-                const startLine = content.slice(0, content.indexOf(chunk)).split('\n').length - 1;
-                const endLine = startLine + chunk.split('\n').length;
+                const startLine = content.slice(0, chunk.startOffset).split('\n').length - 1;
+                const endLine = startLine + chunk.text.split('\n').length;
                 
-                const embedding = await this.getEmbedding(chunk);
+                const embedding = await this.getEmbedding(chunk.text);
                 if (!embedding || embedding.length === 0) {
                     throw new Error('Failed to generate embedding');
                 }
@@ -287,38 +293,94 @@ export default class VectorSearchPlugin extends Plugin {
         }
     }
 
-    private splitIntoChunks(content: string): string[] {
+    private splitIntoChunks(content: string): TextChunk[] {
         if (this.settings.chunkSize === 0) {
-            return [content];
+            return [{
+                text: content,
+                startOffset: 0,
+                endOffset: content.length
+            }];
         }
 
         if (this.settings.chunkingStrategy === 'paragraph') {
-            const paragraphs = content.split(/\n\s*\n/);
-            const chunks: string[] = [];
-            let currentChunk = '';
+            const paragraphs: Array<{ start: number; end: number }> = [];
+            const lines = content.split('\n');
+            let offset = 0;
+            let paragraphStart = 0;
+
+            for (const line of lines) {
+                const lineEnd = offset + line.length;
+                const isBlank = line.trim().length === 0;
+                if (isBlank) {
+                    if (paragraphStart < offset) {
+                        paragraphs.push({ start: paragraphStart, end: offset });
+                    }
+                    paragraphStart = lineEnd + 1;
+                }
+                offset = lineEnd + 1;
+            }
+            if (paragraphStart < content.length) {
+                paragraphs.push({ start: paragraphStart, end: content.length });
+            }
+
+            const chunks: TextChunk[] = [];
+            let chunkStart = -1;
+            let chunkEnd = -1;
+            let chunkLength = 0;
 
             for (const paragraph of paragraphs) {
-                if ((currentChunk + paragraph).length > this.settings.chunkSize) {
-                    if (currentChunk) {
-                        chunks.push(currentChunk.trim());
-                    }
-                    currentChunk = paragraph;
+                const paragraphText = content.slice(paragraph.start, paragraph.end);
+                if (paragraphText.trim().length === 0) {
+                    continue;
+                }
+
+                if (chunkStart === -1) {
+                    chunkStart = paragraph.start;
+                    chunkEnd = paragraph.end;
+                    chunkLength = paragraphText.length;
+                    continue;
+                }
+
+                const gap = paragraph.start - chunkEnd;
+                const nextLength = chunkLength + gap + paragraphText.length;
+                if (nextLength > this.settings.chunkSize && chunkLength > 0) {
+                    chunks.push({
+                        text: content.slice(chunkStart, chunkEnd),
+                        startOffset: chunkStart,
+                        endOffset: chunkEnd
+                    });
+                    chunkStart = paragraph.start;
+                    chunkEnd = paragraph.end;
+                    chunkLength = paragraphText.length;
                 } else {
-                    currentChunk = currentChunk ? `${currentChunk}\n\n${paragraph}` : paragraph;
+                    chunkEnd = paragraph.end;
+                    chunkLength = nextLength;
                 }
             }
-            if (currentChunk) {
-                chunks.push(currentChunk.trim());
+
+            if (chunkStart !== -1) {
+                chunks.push({
+                    text: content.slice(chunkStart, chunkEnd),
+                    startOffset: chunkStart,
+                    endOffset: chunkEnd
+                });
             }
+
             return chunks;
         }
 
         // Character-based chunking
-        const chunks: string[] = [];
+        const chunks: TextChunk[] = [];
         let i = 0;
         while (i < content.length) {
-            const chunk = content.slice(i, i + this.settings.chunkSize);
-            chunks.push(chunk);
+            const startOffset = i;
+            const endOffset = Math.min(i + this.settings.chunkSize, content.length);
+            const chunk = content.slice(startOffset, endOffset);
+            chunks.push({
+                text: chunk,
+                startOffset,
+                endOffset
+            });
             i += this.settings.chunkSize - this.settings.chunkOverlap;
         }
         return chunks;
@@ -405,10 +467,10 @@ export default class VectorSearchPlugin extends Plugin {
                 
                 for (let i = 0; i < chunks.length; i++) {
                     const chunk = chunks[i];
-                    const startLine = content.slice(0, content.indexOf(chunk)).split('\n').length - 1;
-                    const endLine = startLine + chunk.split('\n').length;
+                    const startLine = content.slice(0, chunk.startOffset).split('\n').length - 1;
+                    const endLine = startLine + chunk.text.split('\n').length;
                     
-                    const embedding = await this.getEmbedding(chunk);
+                    const embedding = await this.getEmbedding(chunk.text);
                     
                     const vectorData: VectorData = {
                         path: normalizePath(file.path),
