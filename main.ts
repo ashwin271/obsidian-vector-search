@@ -58,6 +58,7 @@ export default class VectorSearchPlugin extends Plugin {
     private debouncedProcessFile: Debouncer<[file: TFile], Promise<void>>;
     private requirementsOk: boolean | null = null;
     private isIndexing = false;
+    private cancelIndexing = false;
 
     async onload() {
 
@@ -109,6 +110,23 @@ export default class VectorSearchPlugin extends Plugin {
             name: 'Search similar notes',
             callback: () => {
                 new SearchModal(this.app, this).open();
+            }
+        });
+
+        this.addCommand({
+            id: 'cancel-vector-index',
+            name: 'Cancel vector indexing',
+            checkCallback: (checking) => {
+                if (!this.isIndexing) {
+                    return false;
+                }
+
+                if (!checking) {
+                    this.cancelIndexing = true;
+                    new Notice('Canceling vector indexing...');
+                }
+
+                return true;
             }
         });
 
@@ -494,6 +512,7 @@ export default class VectorSearchPlugin extends Plugin {
         }
 
         this.isIndexing = true;
+        this.cancelIndexing = false;
         this.vectorStore.clear();
         const files = this.app.vault.getMarkdownFiles();
         
@@ -501,16 +520,27 @@ export default class VectorSearchPlugin extends Plugin {
         const total = files.length;
         
         const progressNotice = new Notice(
-            `Indexing files: 0/${total} (0%)`,
+            `Indexing files: 0/${total} (0%). Use the command "Cancel vector indexing" to stop.`,
             0
         );
         
         try {
+            let canceled = false;
             for (const file of files) {
+                if (this.cancelIndexing) {
+                    canceled = true;
+                    break;
+                }
+
                 const content = await this.app.vault.read(file);
                 const chunks = this.splitIntoChunks(content);
                 
                 for (let i = 0; i < chunks.length; i++) {
+                    if (this.cancelIndexing) {
+                        canceled = true;
+                        break;
+                    }
+
                     const chunk = chunks[i];
                     const startLine = content.slice(0, chunk.startOffset).split('\n').length - 1;
                     const endLine = startLine + chunk.text.split('\n').length;
@@ -533,6 +563,10 @@ export default class VectorSearchPlugin extends Plugin {
                     const key = `${vectorData.path}#${i}`;
                     this.vectorStore.set(key, vectorData);
                 }
+
+                if (canceled) {
+                    break;
+                }
                 
                 processed++;
                 progressNotice.setMessage(
@@ -540,8 +574,14 @@ export default class VectorSearchPlugin extends Plugin {
                 );
             }
 
+            if (canceled) {
+                await this.loadVectorStore();
+                new Notice('Vector indexing canceled. Existing index preserved.');
+                return;
+            }
+
             await this.saveVectorStore();
-            
+
             new Notice('Vector index rebuilt successfully!');
         } finally {
             progressNotice.hide();
