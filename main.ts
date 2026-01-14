@@ -89,10 +89,10 @@ export default class VectorSearchPlugin extends Plugin {
         );
     
         this.registerEvent(
-            this.app.vault.on('delete', (file) => {
+            this.app.vault.on('delete', async (file) => {
                 if (file instanceof TFile && file.extension === 'md') {
                     this.removeFileVectors(file.path);
-                    this.saveSettings();
+                    await this.saveVectorStore();
                 }
             })
         );
@@ -122,9 +122,45 @@ export default class VectorSearchPlugin extends Plugin {
 
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-        // Populate vectorStore from settings
+        await this.loadVectorStore();
+    }
+
+    async saveSettings() {
+        await this.saveData(this.settings);
+    }
+
+    private getVectorStoreDir(): string {
+        return normalizePath(`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+    }
+
+    private getVectorStorePath(): string {
+        return normalizePath(`${this.getVectorStoreDir()}/vectors.json`);
+    }
+
+    private async loadVectorStore(): Promise<void> {
+        const adapter = this.app.vault.adapter;
+        const vectorPath = this.getVectorStorePath();
+        let vectors: VectorData[] = [];
+
+        if (await adapter.exists(vectorPath)) {
+            try {
+                const raw = await adapter.read(vectorPath);
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    vectors = parsed as VectorData[];
+                }
+            } catch (error) {
+                console.error('[Vector Search] Failed to load vector store:', error);
+            }
+        } else if (this.settings.vectors.length > 0) {
+            vectors = this.settings.vectors;
+            await this.saveVectorStore(vectors);
+            this.settings.vectors = [];
+            await this.saveSettings();
+        }
+
         this.vectorStore = new Map(
-            this.settings.vectors.map((v, index) => {
+            vectors.map((v, index) => {
                 const chunkIndex = Number.isFinite(v.chunkIndex) ? v.chunkIndex : index;
                 const key = `${v.path}#${chunkIndex}`;
                 return [key, { ...v, chunkIndex }];
@@ -132,8 +168,17 @@ export default class VectorSearchPlugin extends Plugin {
         );
     }
 
-    async saveSettings() {
-        await this.saveData(this.settings);
+    private async saveVectorStore(vectors?: VectorData[]): Promise<void> {
+        const adapter = this.app.vault.adapter;
+        const vectorDir = this.getVectorStoreDir();
+        const vectorPath = this.getVectorStorePath();
+        const payload = vectors ?? Array.from(this.vectorStore.values());
+
+        if (!(await adapter.exists(vectorDir))) {
+            await adapter.mkdir(vectorDir);
+        }
+
+        await adapter.write(vectorPath, JSON.stringify(payload, null, 2));
     }
 
     private markRequirementsStale(): void {
@@ -170,7 +215,8 @@ export default class VectorSearchPlugin extends Plugin {
                 
                 const embedding = await this.getEmbedding(chunk.text);
                 if (!embedding || embedding.length === 0) {
-                    throw new Error('Failed to generate embedding');
+                    console.error(`[Vector Search] Skipping empty embedding for ${file.path} (chunk ${i + 1}/${chunks.length}).`);
+                    continue;
                 }
                 
                 const vectorData: VectorData = {
@@ -187,8 +233,7 @@ export default class VectorSearchPlugin extends Plugin {
             }
             
             // Save after successful processing
-            this.settings.vectors = Array.from(this.vectorStore.values());
-            await this.saveSettings();
+            await this.saveVectorStore();
             
         } catch (error) {
             console.error(`Failed to process file ${file.path}:`, error);
@@ -495,8 +540,7 @@ export default class VectorSearchPlugin extends Plugin {
                 );
             }
 
-            this.settings.vectors = Array.from(this.vectorStore.values());
-            await this.saveSettings();
+            await this.saveVectorStore();
             
             new Notice('Vector index rebuilt successfully!');
         } finally {
