@@ -209,7 +209,7 @@ export default class VectorSearchPlugin extends Plugin {
         await adapter.write(vectorPath, JSON.stringify(payload, null, 2));
     }
 
-    private async clearVectorStore(): Promise<void> {
+    async clearVectorStore(): Promise<void> {
         const adapter = this.app.vault.adapter;
         const vectorPath = this.getVectorStorePath();
         this.vectorStore.clear();
@@ -218,7 +218,7 @@ export default class VectorSearchPlugin extends Plugin {
         }
     }
 
-    private markRequirementsStale(): void {
+    markRequirementsStale(): void {
         this.requirementsOk = null;
     }
 
@@ -351,7 +351,7 @@ export default class VectorSearchPlugin extends Plugin {
         }
     }
 
-    private async ensureRequirements(showNotice: boolean): Promise<boolean> {
+    async ensureRequirements(showNotice: boolean): Promise<boolean> {
         if (this.requirementsOk === true) {
             return true;
         }
