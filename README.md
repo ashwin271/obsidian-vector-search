@@ -87,8 +87,7 @@ ollama list
     - Wait for all notes to be processed (progress will be shown)
 
 3. **Searching**
-    - Select any text in a note
-    - Use the command "Find Similar Notes" (or set up a hotkey)
+    - Use the command "Vector Search: Search Similar Notes" (or set up a hotkey)
     - View results in the popup modal
 
 ## How it Works
