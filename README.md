@@ -77,14 +77,13 @@ ollama list
 
 1. **Initial Setup**
 
-    - Go to Settings > Vector Search
+    - Go to Settings > Vector Search (restart Obsidian if you do not see this under "Community plugins")
     - Configure your Ollama URL (default: http://localhost:11434)
     - Set your desired similarity threshold (0-1)
 
 2. **Building the Index**
 
-    - Click the vector search icon in the ribbon
-    - Wait for all notes to be processed (progress will be shown)
+    - In the ribbon bar to the left, click the vector search icon ⟲ (restart Obsidian if the icon is not visible yet)
 
 3. **Searching**
     - Select any text in a note
